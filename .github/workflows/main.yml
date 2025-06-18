@@ -1,0 +1,162 @@
+name: Appium Test Automation with Screen Recording
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Android-App-for-Car-Parking-Project/**'
+      - 'Backend-Implementation-for-Car-Parking-Project/**'
+      - '.github/workflows/main.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Android-App-for-Car-Parking-Project/**'
+      - 'Backend-Implementation-for-Car-Parking-Project/**'
+      - '.github/workflows/main.yml'
+  workflow_dispatch:
+
+jobs:
+  appium-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      API_BASE_URL: "http://10.0.2.2:5000/"
+
+    steps:
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Initialize and update submodules
+        run: |
+          git submodule update --init --recursive
+          git submodule status
+          cd Android-App-for-Car-Parking-Project && git checkout main
+          cd ../Backend-Implementation-for-Car-Parking-Project && git checkout main
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        working-directory: Android-App-for-Car-Parking-Project/tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-html pytest-xdist
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create local.properties
+        working-directory: Android-App-for-Car-Parking-Project
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" >> local.properties
+          echo "API_BASE_URL=${{ env.API_BASE_URL }}" >> local.properties
+
+      - name: Grant execute permission for gradlew
+        working-directory: Android-App-for-Car-Parking-Project
+        run: chmod +x ./gradlew
+
+      - name: Build Debug APK
+        working-directory: Android-App-for-Car-Parking-Project
+        run: ./gradlew assembleDebug --stacktrace
+        env:
+          ANDROID_HOME: ${{ secrets.ANDROID_HOME }}
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          API_BASE_URL: ${{ env.API_BASE_URL }}
+
+      - name: Install Appium
+        run: |
+          npm install -g appium@next
+          appium driver install uiautomator2
+          appium driver install xcuitest
+
+      - name: Start Appium Server
+        run: |
+          appium --base-path /wd/hub &
+          sleep 5
+
+      - name: Create test script with screen recording
+        working-directory: Android-App-for-Car-Parking-Project/tests
+        run: |
+          cat > run_tests.sh << 'EOF'
+          #!/bin/bash
+          set -e
+
+          # Start screen recording
+          echo "🎥 Starting screen recording..."
+          adb shell screenrecord --time-limit=300 /sdcard/test_recording.mp4 &
+          RECORDING_PID=$!
+
+          # Run tests
+          echo "🧪 Running Appium tests..."
+          pytest test_parking_app.py -v --html=report.html
+
+          # Stop screen recording
+          echo "🛑 Stopping screen recording..."
+          adb shell pkill -SIGINT screenrecord
+          sleep 2
+
+          # Pull recording
+          echo "📥 Downloading screen recording..."
+          adb pull /sdcard/test_recording.mp4 .
+          EOF
+          chmod +x run_tests.sh
+
+      - name: Run Appium Tests with Screen Recording
+        working-directory: Android-App-for-Car-Parking-Project/tests
+        run: ./run_tests.sh
+        env:
+          APPIUM_SERVER_URL: "http://127.0.0.1:4723/wd/hub"
+
+      - name: Upload Test Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appium-test-report
+          path: Android-App-for-Car-Parking-Project/tests/report.html
+          retention-days: 7
+
+      - name: Upload Screen Recording
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-recording
+          path: Android-App-for-Car-Parking-Project/tests/test_recording.mp4
+          retention-days: 7
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-debug-apk
+          path: Android-App-for-Car-Parking-Project/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 3
+
+      - name: Upload Test Screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-screenshots
+          path: Android-App-for-Car-Parking-Project/tests/screenshots/
+          retention-days: 7

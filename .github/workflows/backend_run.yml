@@ -1,0 +1,120 @@
+name: Run Backend Services for 1 Minute
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Backend-Implementation-for-Car-Parking-Project/**'
+      - '.github/workflows/backend_run.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Backend-Implementation-for-Car-Parking-Project/**'
+      - '.github/workflows/backend_run.yml'
+  workflow_dispatch:
+
+jobs:
+  run-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Initialize and update submodules
+        run: |
+          git submodule update --init --recursive
+          git submodule status
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start backend services
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          echo "Starting backend services..."
+          docker compose up -d
+          echo "Waiting for services to start..."
+          sleep 10
+          echo "Checking container status..."
+          docker compose ps
+          echo "Container logs:"
+          docker compose logs
+
+      - name: Wait for backend to be ready
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          echo "Waiting for Flask server to start..."
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if docker compose logs web | grep -q "Running on http://"; then
+              echo "Flask server is running!"
+              break
+            fi
+            echo "Waiting for Flask server... ($timeout seconds remaining)"
+            sleep 5
+            timeout=$((timeout-5))
+          done
+
+          if [ $timeout -le 0 ]; then
+            echo "Flask server failed to start within timeout"
+            docker compose logs web
+            exit 1
+          fi
+
+      - name: Monitor backend for 1 minute
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          echo "Monitoring backend for 1 minute..."
+          start_time=$(date +%s)
+          while true; do
+            current_time=$(date +%s)
+            elapsed=$((current_time - start_time))
+            
+            # Stop after 60 seconds
+            if [ $elapsed -ge 60 ]; then
+              echo "✅ Completed 1-minute monitoring!"
+              break
+            fi
+            
+            # Check service health every 10 seconds
+            if [ $((elapsed % 10)) -eq 0 ]; then
+              echo "Checking service health at ${elapsed}s..."
+              docker compose ps
+              echo "Recent logs:"
+              docker compose logs --tail=20
+            fi
+            
+            sleep 1
+          done
+
+      - name: Save logs
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          echo "Saving final logs..."
+          docker compose logs > backend_logs.txt
+          docker compose ps > container_status.txt
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-logs
+          path: |
+            Backend-Implementation-for-Car-Parking-Project/backend_logs.txt
+            Backend-Implementation-for-Car-Parking-Project/container_status.txt
+          retention-days: 7
+
+      - name: Cleanup backend services
+        if: always()
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          echo "Stopping backend services..."
+          docker compose down
+          echo "Checking for any remaining containers..."
+          docker ps -a

@@ -38,7 +38,10 @@ jobs:
         working-directory: Backend-Implementation-for-Car-Parking-Project
         run: |
           echo "Starting backend services..."
-          docker compose up -d
+          # Stop any existing containers first
+          docker compose down -v
+          # Start services with no auto-restart
+          docker compose up -d --no-recreate
           echo "Waiting for services to start..."
           sleep 10
           echo "Checking container status..."
@@ -52,17 +55,17 @@ jobs:
           echo "Waiting for Flask server to start..."
           timeout=60
           while [ $timeout -gt 0 ]; do
-            if docker compose logs web | grep -q "Running on http://"; then
-              echo "Flask server is running!"
+            if docker compose logs web | grep -q "Running on http://" && ! docker compose logs web | grep -q "Restarting with stat"; then
+              echo "Flask server is running and stable!"
               break
             fi
-            echo "Waiting for Flask server... ($timeout seconds remaining)"
+            echo "Waiting for Flask server to stabilize... ($timeout seconds remaining)"
             sleep 5
             timeout=$((timeout-5))
           done
 
           if [ $timeout -le 0 ]; then
-            echo "Flask server failed to start within timeout"
+            echo "Flask server failed to stabilize within timeout"
             docker compose logs web
             exit 1
           fi
@@ -82,12 +85,12 @@ jobs:
               break
             fi
             
-            # Check service health every 10 seconds
-            if [ $((elapsed % 10)) -eq 0 ]; then
+            # Check service health every 15 seconds (reduced frequency)
+            if [ $((elapsed % 15)) -eq 0 ]; then
               echo "Checking service health at ${elapsed}s..."
               docker compose ps
-              echo "Recent logs:"
-              docker compose logs --tail=20
+              echo "Recent logs (last 10 lines):"
+              docker compose logs --tail=10
             fi
             
             sleep 1
@@ -115,6 +118,6 @@ jobs:
         working-directory: Backend-Implementation-for-Car-Parking-Project
         run: |
           echo "Stopping backend services..."
-          docker compose down
+          docker compose down -v
           echo "Checking for any remaining containers..."
           docker ps -a

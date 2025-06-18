@@ -48,6 +48,7 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > Android-App-for-Car-Parking-Project/local.properties
           echo "ndk.dir=$ANDROID_HOME/ndk-bundle" >> Android-App-for-Car-Parking-Project/local.properties
+          echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" >> Android-App-for-Car-Parking-Project/local.properties
 
       - name: Grant execute permission for gradlew
         run: chmod +x Android-App-for-Car-Parking-Project/gradlew
@@ -56,6 +57,8 @@ jobs:
         run: |
           cd Android-App-for-Car-Parking-Project
           ./gradlew assembleDebug
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
 
       - name: Extract package name
         id: package-name

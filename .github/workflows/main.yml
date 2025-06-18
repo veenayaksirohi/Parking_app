@@ -1,15 +1,17 @@
-name: Android App Test
+name: Android App Test with Backend
 
 on:
   push:
     branches: [ main ]
     paths:
       - 'Android-App-for-Car-Parking-Project/**'
+      - 'Backend-Implementation-for-Car-Parking-Project/**'
       - '.github/workflows/main.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'Android-App-for-Car-Parking-Project/**'
+      - 'Backend-Implementation-for-Car-Parking-Project/**'
       - '.github/workflows/main.yml'
   workflow_dispatch:
 
@@ -32,6 +34,17 @@ jobs:
         run: |
           git submodule update --init --recursive
           git submodule status
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start Backend Services
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          docker-compose up -d
+          echo "Waiting for backend services to be ready..."
+          timeout 60s bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost:5000/health)" != "200" ]]; do sleep 2; done' || true
+          echo "Backend services are up!"
 
       - name: Enable KVM
         run: |
@@ -211,3 +224,8 @@ jobs:
           name: app-screenshots
           path: Android-App-for-Car-Parking-Project/screenshots/
           retention-days: 7
+
+      - name: Stop Backend Services
+        if: always()
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: docker-compose down

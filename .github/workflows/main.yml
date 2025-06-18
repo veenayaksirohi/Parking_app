@@ -10,20 +10,6 @@ on:
 jobs:
   backend-test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        ports:
-          - 5432:5432
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: root
-          POSTGRES_DB: parking_test
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +25,12 @@ jobs:
           pip install -r Backend-Implementation-for-Car-Parking-Project/requirements.txt
           pip install pytest psycopg2-binary
 
+      - name: Build and run Docker containers
+        run: |
+          cd Backend-Implementation-for-Car-Parking-Project
+          docker-compose up -d --build
+          sleep 10  # Wait for services to be ready
+
       - name: Run backend tests
         env:
           TESTING: "True"
@@ -51,6 +43,12 @@ jobs:
         run: |
           cd Backend-Implementation-for-Car-Parking-Project
           pytest --verbose
+
+      - name: Stop Docker containers
+        if: always()
+        run: |
+          cd Backend-Implementation-for-Car-Parking-Project
+          docker-compose down
 
   android-build:
     needs: backend-test

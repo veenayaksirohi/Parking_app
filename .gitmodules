@@ -1,0 +1,6 @@
+[submodule "Android-App-for-Car-Parking-Project"]
+	path = Android-App-for-Car-Parking-Project
+	url = https://github.com/veenayaksirohi/Android-App-for-Car-Parking-Project.git
+[submodule "Backend-Implementation-for-Car-Parking-Project"]
+	path = Backend-Implementation-for-Car-Parking-Project
+	url = https://github.com/veenayaksirohi/Backend-Implementation-for-Car-Parking-Project.git

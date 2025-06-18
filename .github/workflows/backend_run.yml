@@ -55,9 +55,16 @@ jobs:
           echo "Waiting for Flask server to start..."
           timeout=60
           while [ $timeout -gt 0 ]; do
-            if docker compose logs web | grep -q "Running on http://" && ! docker compose logs web | grep -q "Restarting with stat"; then
+            # Check if Flask server is running and has completed its initial restart
+            if docker compose logs web | grep -q "Running on http://" && \
+               docker compose logs web | grep -q "Debugger is active!" && \
+               ! docker compose logs web | grep -q "Restarting with stat"; then
               echo "Flask server is running and stable!"
-              break
+              # Give it a moment to ensure it's truly stable
+              sleep 5
+              if ! docker compose logs web | grep -q "Restarting with stat"; then
+                break
+              fi
             fi
             echo "Waiting for Flask server to stabilize... ($timeout seconds remaining)"
             sleep 5
@@ -66,7 +73,8 @@ jobs:
 
           if [ $timeout -le 0 ]; then
             echo "Flask server failed to stabilize within timeout"
-            docker compose logs web
+            echo "Last 50 lines of web container logs:"
+            docker compose logs --tail=50 web
             exit 1
           fi
 
@@ -85,7 +93,7 @@ jobs:
               break
             fi
             
-            # Check service health every 15 seconds (reduced frequency)
+            # Check service health every 15 seconds
             if [ $((elapsed % 15)) -eq 0 ]; then
               echo "Checking service health at ${elapsed}s..."
               docker compose ps

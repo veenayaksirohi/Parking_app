@@ -2,15 +2,15 @@ name: Run Backend Services for 1 Minute
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
     paths:
       - 'Backend-Implementation-for-Car-Parking-Project/**'
-      - '.github/workflows/backend_run.yml'
+      - '.github/workflows/**'
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
     paths:
       - 'Backend-Implementation-for-Car-Parking-Project/**'
-      - '.github/workflows/backend_run.yml'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 jobs:

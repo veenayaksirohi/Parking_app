@@ -6,13 +6,13 @@ on:
     paths:
       - 'Android-App-for-Car-Parking-Project/**'
       - 'Backend-Implementation-for-Car-Parking-Project/**'
-      - '.github/workflows/complete-appium-pipeline.yml'
+      - '.github/workflows/**'
   pull_request:
     branches: [ main, develop ]
     paths:
       - 'Android-App-for-Car-Parking-Project/**'
       - 'Backend-Implementation-for-Car-Parking-Project/**'
-      - '.github/workflows/complete-appium-pipeline.yml'
+      - '.github/workflows/**'
   workflow_dispatch:
     inputs:
       test_duration:

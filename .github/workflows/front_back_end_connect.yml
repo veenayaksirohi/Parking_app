@@ -2,17 +2,17 @@ name: Run Android App + Backend Integration Test
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
     paths:
       - 'Android-App-for-Car-Parking-Project/**'
       - 'Backend-Implementation-for-Car-Parking-Project/**'
-      - '.github/workflows/integration_test.yml'
+      - '.github/workflows/**'
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
     paths:
       - 'Android-App-for-Car-Parking-Project/**'
       - 'Backend-Implementation-for-Car-Parking-Project/**'
-      - '.github/workflows/integration_test.yml'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 jobs:

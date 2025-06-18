@@ -58,7 +58,10 @@ jobs:
       - name: Extract package name
         working-directory: Android-App-for-Car-Parking-Project
         run: |
-          PACKAGE_NAME=$(./gradlew :app:printApplicationId --quiet)
+          PACKAGE_NAME=$(grep -o "applicationId.*" app/build.gradle | cut -d'"' -f2)
+          if [ -z "$PACKAGE_NAME" ]; then
+            PACKAGE_NAME=$(grep -o "namespace.*" app/build.gradle | cut -d'"' -f2)
+          fi
           echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
 
       - name: Create test script

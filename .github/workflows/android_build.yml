@@ -3,8 +3,16 @@ name: Run Android_build App for 1 Minute (Basic Test)
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'Android-App-for-Car-Parking-Project/**'
+      - 'Backend-Implementation-for-Car-Parking-Project/**'
+      - '.github/workflows/android_build.yml'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'Android-App-for-Car-Parking-Project/**'
+      - 'Backend-Implementation-for-Car-Parking-Project/**'
+      - '.github/workflows/android_build.yml'
   workflow_dispatch:
 
 jobs:
@@ -15,8 +23,17 @@ jobs:
       API_BASE_URL: "http://10.0.2.2:5000/"
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository with submodules
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Initialize and update submodules
+        run: |
+          git submodule update --init --recursive
+          git submodule status
 
       - name: Enable KVM
         run: |
@@ -35,15 +52,18 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Create local.properties
+        working-directory: Android-App-for-Car-Parking-Project
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" >> local.properties
           echo "API_BASE_URL=${{ env.API_BASE_URL }}" >> local.properties
 
       - name: Grant execute permission for gradlew
+        working-directory: Android-App-for-Car-Parking-Project
         run: chmod +x ./gradlew
 
       - name: Build Debug APK
+        working-directory: Android-App-for-Car-Parking-Project
         run: ./gradlew assembleDebug --stacktrace
         env:
           ANDROID_HOME: ${{ secrets.ANDROID_HOME }}
@@ -51,6 +71,7 @@ jobs:
           API_BASE_URL: ${{ env.API_BASE_URL }}
 
       - name: Extract package name
+        working-directory: Android-App-for-Car-Parking-Project
         id: extract_package
         run: |
           if [ -f "app/build.gradle.kts" ]; then
@@ -75,6 +96,7 @@ jobs:
           echo "✔️ Found package: $PACKAGE_NAME"
 
       - name: Create test script
+        working-directory: Android-App-for-Car-Parking-Project
         run: |
           cat > test_script.sh << 'EOF'
           #!/bin/bash
@@ -114,8 +136,8 @@ jobs:
               break
             fi
 
-            # Every 20 seconds: take screenshot
-            if [ $((elapsed % 20)) -eq 0 ] && [ $elapsed -gt 0 ]; then
+            # Every 15 seconds: take screenshot
+            if [ $((elapsed % 15)) -eq 0 ] && [ $elapsed -gt 0 ]; then
               echo "📸 Taking screenshot ${screenshot_count}..."
               adb shell screencap -p /sdcard/screenshot_${screenshot_count}.png
               adb pull /sdcard/screenshot_${screenshot_count}.png screenshots/
@@ -167,7 +189,7 @@ jobs:
           heap-size: 1024M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
-          script: ./test_script.sh
+          script: cd Android-App-for-Car-Parking-Project && ./test_script.sh
         env:
           API_BASE_URL: ${{ env.API_BASE_URL }}
 
@@ -176,7 +198,7 @@ jobs:
         if: always()
         with:
           name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: Android-App-for-Car-Parking-Project/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 1
 
       - name: Upload logs
@@ -192,5 +214,5 @@ jobs:
         if: always()
         with:
           name: app-screenshots
-          path: screenshots/
+          path: Android-App-for-Car-Parking-Project/screenshots/
           retention-days: 7

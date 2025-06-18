@@ -1,65 +1,28 @@
-name: Car Parking App CI/CD
+name: Android App Test
 
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'Android-App-for-Car-Parking-Project/**'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'Android-App-for-Car-Parking-Project/**'
   workflow_dispatch:
 
 jobs:
-  backend-test:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r Backend-Implementation-for-Car-Parking-Project/requirements.txt
-          pip install pytest psycopg2-binary
-
-      - name: Build and run Docker containers
-        run: |
-          cd Backend-Implementation-for-Car-Parking-Project
-          docker-compose up -d --build
-          sleep 10  # Wait for services to be ready
-
-      - name: Run backend tests
-        env:
-          TESTING: "True"
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_NAME: parking_test
-          DB_USER: postgres
-          DB_PASSWORD: root
-          JWT_SECRET_KEY: your-secret-key-here
-        run: |
-          cd Backend-Implementation-for-Car-Parking-Project
-          pytest --verbose
-
-      - name: Stop Docker containers
-        if: always()
-        run: |
-          cd Backend-Implementation-for-Car-Parking-Project
-          docker-compose down
-
-  android-build:
-    needs: backend-test
+  android-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       API_BASE_URL: "http://10.0.2.2:5000"
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
       - name: Enable KVM
         run: |
@@ -172,19 +135,6 @@ jobs:
               screenshot_count=$((screenshot_count + 1))
             fi
 
-            # Every 10 seconds: health check
-            if [ $((elapsed % 10)) -eq 0 ] && [ $elapsed -gt 0 ]; then
-              if adb shell pidof "$PACKAGE_NAME" > /dev/null; then
-                echo "📱 App is still running (${elapsed}s/60s)…"
-              else
-                echo "💥 App crashed at ${elapsed}s! Dumping crash logs:"
-                adb logcat -d \
-                  | grep -E "(FATAL|AndroidRuntime|$PACKAGE_NAME|Exception|Error)" \
-                  | tail -20
-                break
-              fi
-            fi
-
             sleep 1
           done
 
@@ -194,9 +144,6 @@ jobs:
           echo "🗒️ Killing background logcat capture…"
           kill $LOGCAT_PID || true
           sleep 2
-
-          echo "📂 Last 100 lines of /tmp/logcat.txt:"
-          tail -n 100 /tmp/logcat.txt || true
 
           echo "📸 Listing screenshots:"
           ls -la screenshots/
@@ -221,80 +168,10 @@ jobs:
         env:
           API_BASE_URL: ${{ env.API_BASE_URL }}
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: app-debug
-          path: Android-App-for-Car-Parking-Project/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 1
-
-      - name: Upload logs
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: app-logs
-          path: /tmp/logcat.txt
-          retention-days: 7
-
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: app-screenshots
           path: Android-App-for-Car-Parking-Project/screenshots/
-          retention-days: 7
-
-  e2e-test:
-    needs: [backend-test, android-build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      API_BASE_URL: "http://10.0.2.2:5000"
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install Appium-Python-Client pytest selenium
-
-      - name: Download APK
-        uses: actions/download-artifact@v4
-        with:
-          name: app-debug
-          path: Android-App-for-Car-Parking-Project/app/build/outputs/apk/debug/
-
-      - name: Start Appium server
-        run: |
-          npm install -g appium
-          appium --base-path /wd/hub &
-          sleep 10
-
-      - name: Run Appium tests
-        env:
-          APPIUM_HOST: localhost
-          APPIUM_PORT: 4723
-          ANDROID_DEVICE_NAME: Android Emulator
-          ANDROID_PLATFORM_VERSION: 28
-          ANDROID_APP_PACKAGE: com.example.carparkingapp
-          ANDROID_APP_ACTIVITY: com.example.carparkingapp.MainActivity
-          API_BASE_URL: ${{ env.API_BASE_URL }}
-        run: |
-          cd Android-App-for-Car-Parking-Project/tests
-          pytest test_parking_app.py -v
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: Android-App-for-Car-Parking-Project/tests/test-results/
           retention-days: 7

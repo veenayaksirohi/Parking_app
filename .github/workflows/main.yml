@@ -5,10 +5,12 @@ on:
     branches: [ main ]
     paths:
       - 'Android-App-for-Car-Parking-Project/**'
+      - '.github/workflows/main.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'Android-App-for-Car-Parking-Project/**'
+      - '.github/workflows/main.yml'
   workflow_dispatch:
 
 jobs:

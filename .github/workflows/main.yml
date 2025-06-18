@@ -18,10 +18,6 @@ on:
 jobs:
   android-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      API_BASE_URL: "http://10.0.2.2:5000/"
-
     steps:
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
@@ -35,33 +31,6 @@ jobs:
           git submodule update --init --recursive
           git submodule status
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Start backend services
-        working-directory: Backend-Implementation-for-Car-Parking-Project
-        run: |
-          echo "Starting Docker Compose services..."
-          docker compose up -d
-          
-          echo "Checking container status..."
-          docker compose ps
-          
-          echo "Checking container logs..."
-          docker compose logs
-          
-          echo "Waiting for backend services to be ready..."
-          timeout 60 bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost:5000/health)" != "200" ]]; do 
-            echo "Waiting for backend to be healthy..."
-            docker compose logs --tail=50
-            sleep 5
-          done' || {
-            echo "Backend failed to become healthy. Container logs:"
-            docker compose logs
-            exit 1
-          }
-          echo "Backend services are up!"
-
       - name: Enable KVM
         run: |
           sudo apt-get update
@@ -72,7 +41,7 @@ jobs:
           sudo chmod 666 /dev/kvm
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -108,7 +77,7 @@ jobs:
       - name: Create test script
         working-directory: Android-App-for-Car-Parking-Project
         run: |
-          cat > test_script.sh << 'EOL'
+          cat > test_script.sh << 'EOF'
           #!/bin/bash
           echo "Waiting for emulator..."
           adb wait-for-device
@@ -116,19 +85,51 @@ jobs:
           adb install -r app/build/outputs/apk/debug/app-debug.apk
           echo "Launching app..."
           adb shell monkey -p $PACKAGE_NAME -c android.intent.category.LAUNCHER 1
-          echo "Taking screenshots..."
-          sleep 20
-          adb shell screencap -p /sdcard/screenshot_1.png
-          adb pull /sdcard/screenshot_1.png
-          sleep 20
-          adb shell screencap -p /sdcard/screenshot_2.png
-          adb pull /sdcard/screenshot_2.png
-          sleep 20
-          adb shell screencap -p /sdcard/screenshot_3.png
-          adb pull /sdcard/screenshot_3.png
+          
+          # Wait for app to fully start
+          echo "Waiting for app to start..."
+          sleep 10
+          
+          # Take initial screenshot
+          echo "Taking initial screenshot..."
+          adb shell screencap -p /sdcard/screenshot_initial.png
+          adb pull /sdcard/screenshot_initial.png
+          
+          # Start backend services
+          echo "Starting backend services..."
+          cd ../Backend-Implementation-for-Car-Parking-Project
+          docker compose up -d
+          
+          # Wait for backend to be ready
+          echo "Waiting for backend to be ready..."
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if docker compose logs web | grep -q "Running on http://"; then
+              echo "Backend is running!"
+              break
+            fi
+            echo "Waiting for backend... ($timeout seconds remaining)"
+            sleep 5
+            timeout=$((timeout-5))
+          done
+          
+          # Take screenshots every 15 seconds for 1 minute
+          echo "Taking screenshots for 1 minute..."
+          for i in {1..4}; do
+            echo "Taking screenshot $i..."
+            adb shell screencap -p /sdcard/screenshot_$i.png
+            adb pull /sdcard/screenshot_$i.png
+            sleep 15
+          done
+          
+          # Stop backend services
+          echo "Stopping backend services..."
+          docker compose down
+          
+          # Stop app
           echo "Stopping app..."
           adb shell am force-stop $PACKAGE_NAME
-          EOL
+          EOF
           chmod +x test_script.sh
 
       - name: Run app on emulator
@@ -149,11 +150,44 @@ jobs:
           path: Android-App-for-Car-Parking-Project/*.png
           if-no-files-found: error
 
-      - name: Stop backend services
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start backend services
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          echo "Starting backend services..."
+          docker compose up -d
+          echo "Waiting for services to start..."
+          sleep 10
+          echo "Checking container status..."
+          docker compose ps
+          echo "Container logs:"
+          docker compose logs
+
+      - name: Wait for backend to be ready
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          echo "Waiting for Flask server to start..."
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if docker compose logs web | grep -q "Running on http://"; then
+              echo "Flask server is running!"
+              exit 0
+            fi
+            echo "Waiting for Flask server... ($timeout seconds remaining)"
+            sleep 5
+            timeout=$((timeout-5))
+          done
+          echo "Flask server failed to start within timeout"
+          docker compose logs web
+          exit 1
+
+      - name: Cleanup backend services
         if: always()
         working-directory: Backend-Implementation-for-Car-Parking-Project
         run: |
-          echo "Stopping Docker Compose services..."
+          echo "Stopping backend services..."
           docker compose down
-          echo "Checking if any containers are still running..."
+          echo "Checking for any remaining containers..."
           docker ps -a

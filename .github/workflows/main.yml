@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      API_BASE_URL: "http://10.0.2.2:5000/"
+      API_BASE_URL: "http://10.0.2.2:5000"
 
     steps:
       - name: Checkout code
@@ -105,6 +105,8 @@ jobs:
     needs: [backend-test, android-build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      API_BASE_URL: "http://10.0.2.2:5000"
 
     steps:
       - name: Checkout code
@@ -140,6 +142,7 @@ jobs:
           ANDROID_PLATFORM_VERSION: 28
           ANDROID_APP_PACKAGE: com.example.carparkingapp
           ANDROID_APP_ACTIVITY: com.example.carparkingapp.MainActivity
+          API_BASE_URL: ${{ env.API_BASE_URL }}
         run: |
           cd Android-App-for-Car-Parking-Project/tests
           pytest test_parking_app.py -v

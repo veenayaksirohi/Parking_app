@@ -1,17 +1,18 @@
-name: Android Appium E2E CI\CD
+# .github/workflows/main.yml
+name: Android Appium E2E CI/CD
 
 on:
   push:
     branches: [ main, develop ]
     paths:
-      - '**'
+      - 'Android-App-for-Car-Parking-Project/**'
+      - '.github/workflows/**'
   pull_request:
     branches: [ main, develop ]
     paths:
-      - '**'
+      - 'Android-App-for-Car-Parking-Project/**'
+      - '.github/workflows/**'
   workflow_dispatch:
-  repository_dispatch:
-    types: [submodule-updated] # Triggered by submodule repo
 
 jobs:
   appium-android-test:
@@ -20,6 +21,7 @@ jobs:
     timeout-minutes: 40
     env:
       TEST_DURATION: 120
+
     steps:
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
@@ -31,7 +33,7 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
           cache: gradle
 
@@ -65,202 +67,86 @@ jobs:
               | sed -E 's/.*applicationId\s+"([^"]+)".*/\1/' \
               | head -1)
           else
-            echo "ERROR: Cannot find app/build.gradle.kts or app/build.gradle"
+            echo "ERROR: Cannot find app/build.gradle(.kts)"
             exit 1
           fi
           if [ -z "$PACKAGE_NAME" ]; then
             PACKAGE_NAME="com.example.carparkingapp"
-            echo "⚠️ Using fallback package name: $PACKAGE_NAME"
+            echo "⚠️ Using fallback package: $PACKAGE_NAME"
           fi
           echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
-          echo "✔️ Found package: $PACKAGE_NAME"
 
       - name: Set up Python for Appium tests
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-          cache: 'pip'
+          cache: pip
 
       - name: Install Python dependencies
         working-directory: Android-App-for-Car-Parking-Project/tests
         run: |
           python -m pip install --upgrade pip
-            pip install -r requirements.txt
+          pip install -r requirements.txt
 
-      - name: Set up Node.js
+      - name: Set up Node.js & Appium
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Install latest Appium and UiAutomator2 driver
-        run: |
+      - run: |
           npm install -g appium@latest
           appium driver install uiautomator2@latest
 
       - name: Verify Appium installation
         run: |
-          echo "Node version:"; node -v
-          echo "NPM version:"; npm -v
-          echo "Appium path (before PATH update):"; which appium || true
-          echo "Appium version (before PATH update):"; appium -v || true
-          if which appium; then ls -l $(which appium); fi
-          export PATH="$PATH:$(npm bin -g)"
-          echo "Appium path (after PATH update):"; which appium || true
-          echo "Appium version (after PATH update):"; appium -v || true
-          if which appium; then ls -l $(which appium); fi
+          node -v; npm -v
+          which appium; appium -v
 
-      - name: Create test scripts
-        run: |
-          # Create the main test script in the repository root
-          cat > start_appium_and_test.sh << 'EOF'
-          #!/bin/bash
-          set -e
-          
-          echo "🚀 Starting Appium server..."
-          # Start Appium server in background
-          nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
-          APPIUM_PID=$!
-          
-          echo "⏳ Waiting for Appium server to be ready..."
-          # Wait up to 30s for Appium to respond as "ready"
-          READY=false
-          for i in {1..10}; do
-            if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q '"ready"' 2>/dev/null; then
-              echo "✅ Appium server is ready"
-              READY=true
-              break
-            fi
-            echo "Waiting for Appium server... ($i/10)"
-            sleep 3
-          done
-          
-          if [ "$READY" = false ]; then
-            echo "❌ Appium server failed to start — dumping logs"
-            cat appium.log
-            kill $APPIUM_PID || true
-            exit 7
-          fi
-          
-          echo "🧪 Running E2E tests..."
-          # Change to Android project directory
-          cd Android-App-for-Car-Parking-Project
-          
-          # Run the E2E test script
-          ./e2e_test.sh
-          
-          echo "🧹 Cleaning up Appium..."
-          kill $APPIUM_PID || true
-          EOF
-          chmod +x start_appium_and_test.sh
-
-      - name: Create E2E test script
+      - name: Create startup & test scripts
         working-directory: Android-App-for-Car-Parking-Project
         run: |
-          cat > e2e_test.sh << 'EOF'
-          #!/bin/bash
-          set -e
-
-          echo "🔍 Checking emulator readiness..."
-          # Wait for emulator to be fully ready
-          adb wait-for-device
-          
-          # Wait for boot to complete
-          echo "⏳ Waiting for emulator to boot completely..."
-          timeout 300 bash -c 'until [[ $(adb shell getprop sys.boot_completed 2>/dev/null) == "1" ]]; do sleep 2; done' || {
-            echo "❌ Emulator failed to boot within 5 minutes"
-            exit 1
-          }
-          echo "✅ Emulator booted successfully."
-          
-          # Disable animations for faster testing
-          echo "🎬 Disabling animations..."
-          adb shell "settings put global window_animation_scale 0.0"
-          adb shell "settings put global transition_animation_scale 0.0"
-          adb shell "settings put global animator_duration_scale 0.0"
-          
-          # Clear logcat and start capturing
-          adb logcat -c
-          mkdir -p screenshots
-
-          echo "📋 Starting logcat capture..."
-          adb logcat > logcat.txt &
-          LOGCAT_PID=$!
-
-          echo "🎥 Starting screen recording..."
-          adb shell screenrecord --time-limit=180 /sdcard/e2e_recording.mp4 &
-          SCREENRECORD_PID=$!
-          
-          # Give some time for setup
-          sleep 5
-
-          echo "📦 Installing APK..."
-          adb install -r app/build/outputs/apk/debug/app-debug.apk
-          
-          echo "🚀 Launching app..."
-          adb shell "am start -n ${PACKAGE_NAME}/.MainActivity -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"
-          
-          # Wait for app to load
-          sleep 10
-          
-          echo "🧪 Running Appium Python tests..."
-          cd tests
-          python -m pytest -v --html=../test-report.html --self-contained-html || {
-            echo "⚠️ Tests completed with issues"
-          }
-          cd ..
-
-          echo "🛑 Stopping app..."
-          adb shell am force-stop "$PACKAGE_NAME" || true
-          
-          echo "🎥 Pulling screen recording..."
-          adb pull /sdcard/e2e_recording.mp4 screenshots/ || true
-          
-          echo "🗒️ Stopping logcat..."
-          kill $LOGCAT_PID || true
-          
-          # Wait for processes to clean up
-          sleep 2
-
-          echo "📂 Test artifacts:"
-          ls -la screenshots/ || true
-          ls -la test-report.html || true
-          
-          echo "🎉 E2E test script completed."
-          EOF
-          chmod +x e2e_test.sh
+          chmod +x ../start_appium_and_test.sh e2e_test.sh
 
       - name: Run E2E Tests on Android Emulator
         uses: reactivecircus/android-emulator-runner@v2
+        shell: bash
         with:
           api-level: 28
-          target: default
           arch: x86_64
           profile: pixel_2
           avd-name: pixel_2_api_28
           ram-size: 4096M
           heap-size: 1024M
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -memory 4096 -partition-size 4096
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -no-snapshot -noaudio
+            -no-boot-anim -camera-back none -camera-front none -memory 4096
+            -partition-size 4096
           disable-animations: true
-          script: |
-            echo "PWD: $(pwd)"
-            echo "Contents of PWD:"
-            ls -la
-            echo "Running start_appium_and_test.sh…"
-            bash ./start_appium_and_test.sh
+        script: |
+          echo "PWD: $(pwd)"
+          echo "Contents:"
+          ls -la
+          bash ./start_appium_and_test.sh
 
-      - name: Upload E2E Artifacts
+      # ─────── Package & upload artifacts ───────
+      - name: Package E2E artifacts
+        if: always()
+        run: |
+          cd Android-App-for-Car-Parking-Project
+          # ensure files exist
+          touch test-report.html logcat.txt
+          mkdir -p screenshots
+          zip -rq e2e-artifacts.zip \
+            test-report.html \
+            ../appium.log \
+            logcat.txt \
+            screenshots \
+            ../e2e_recording.mp4 \
+            || echo "⚠️ Missing some artifacts, continuing."
+
+      - name: Upload E2E artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: e2e-artifacts
           path: Android-App-for-Car-Parking-Project/e2e-artifacts.zip
           retention-days: 14
-
-      - name: Cleanup
-        if: always()
-        run: |
-          echo "🧹 Cleaning up..."
-          pkill -f appium || true
-          pkill -f adb || true
-          # Show any remaining appium/adb processes
-          ps aux | grep -E "(appium|adb)" | grep -v grep || true

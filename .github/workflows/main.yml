@@ -191,7 +191,7 @@ jobs:
         if: always()
         with:
           name: appium-log
-          path: Android-App-for-Car-Parking-Project/appium.log
+          path: appium.log
           retention-days: 14
 
       - name: Upload E2E test report

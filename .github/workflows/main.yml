@@ -139,6 +139,18 @@ jobs:
           npm install -g appium@latest
           appium driver install uiautomator2@latest
 
+      - name: Verify Appium installation
+        run: |
+          echo "Node version:"; node -v
+          echo "NPM version:"; npm -v
+          echo "Appium path (before PATH update):"; which appium || true
+          echo "Appium version (before PATH update):"; appium -v || true
+          if which appium; then ls -l $(which appium); fi
+          export PATH="$PATH:$(npm bin -g)"
+          echo "Appium path (after PATH update):"; which appium || true
+          echo "Appium version (after PATH update):"; appium -v || true
+          if which appium; then ls -l $(which appium); fi
+
       - name: Start Appium Server (robust HTTP 200 check)
         run: |
           nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &

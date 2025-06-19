@@ -4,13 +4,11 @@ on:
   push:
     branches: [ main, develop ]
     paths:
-      - 'Android-App-for-Car-Parking-Project/**'
-      - '.github/workflows/**'
+      - '**'
   pull_request:
     branches: [ main, develop ]
     paths:
-      - 'Android-App-for-Car-Parking-Project/**'
-      - '.github/workflows/**'
+      - '**'
   workflow_dispatch:
 
 jobs:
@@ -85,7 +83,7 @@ jobs:
         working-directory: Android-App-for-Car-Parking-Project/tests
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+            pip install -r requirements.txt
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -159,7 +157,7 @@ jobs:
           cat > e2e_test.sh << 'EOF'
           #!/bin/bash
           set -e
-          
+
           echo "🔍 Checking emulator readiness..."
           # Wait for emulator to be fully ready
           adb wait-for-device
@@ -181,18 +179,18 @@ jobs:
           # Clear logcat and start capturing
           adb logcat -c
           mkdir -p screenshots
-          
+
           echo "📋 Starting logcat capture..."
           adb logcat > logcat.txt &
           LOGCAT_PID=$!
-          
+
           echo "🎥 Starting screen recording..."
           adb shell screenrecord --time-limit=180 /sdcard/e2e_recording.mp4 &
           SCREENRECORD_PID=$!
           
           # Give some time for setup
           sleep 5
-          
+
           echo "📦 Installing APK..."
           adb install -r app/build/outputs/apk/debug/app-debug.apk
           
@@ -208,7 +206,7 @@ jobs:
             echo "⚠️ Tests completed with issues"
           }
           cd ..
-          
+
           echo "🛑 Stopping app..."
           adb shell am force-stop "$PACKAGE_NAME" || true
           
@@ -220,7 +218,7 @@ jobs:
           
           # Wait for processes to clean up
           sleep 2
-          
+
           echo "📂 Test artifacts:"
           ls -la screenshots/ || true
           ls -la test-report.html || true

@@ -170,22 +170,28 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -memory 4096 -partition-size 4096
           disable-animations: true
           script: |
-            nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
-            i=1
-            while [ $i -le 10 ]; do
-              if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q 'ready'; then
+            cd Android-App-for-Car-Parking-Project
+
+            # Start Appium server in background and capture its log in repo root
+            nohup appium --base-path /wd/hub --log-level info > ../appium.log 2>&1 &
+
+            # Wait up to 30s for Appium to respond as "ready"
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q '"ready"'; then
                 echo "✅ Appium server is ready"
                 break
               fi
               echo "Waiting for Appium server... ($i/10)"
               sleep 3
-              i=$((i + 1))
             done
-            if ! curl -s http://127.0.0.1:4723/wd/hub/status | grep -q 'ready'; then
-              echo "❌ Appium server failed to start"
-              cat appium.log
+
+            if ! curl -s http://127.0.0.1:4723/wd/hub/status | grep -q '"ready"'; then
+              echo "❌ Appium server failed to start — dumping logs"
+              cat ../appium.log
               exit 7
             fi
+
+            # now run your shell‐script test harness
             ./e2e_test.sh
 
       - name: Upload Android logcat

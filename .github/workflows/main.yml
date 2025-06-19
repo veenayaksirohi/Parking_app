@@ -151,55 +151,16 @@ jobs:
           echo "Appium version (after PATH update):"; appium -v || true
           if which appium; then ls -l $(which appium); fi
 
-      - name: Start Appium Server (robust HTTP 200 check)
+      - name: Start Appium Server (foreground, print all output)
         run: |
-          nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
-          for i in {1..10}; do
-            status_code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4723/wd/hub/status)
-            if [ "$status_code" = "200" ]; then
-              echo "✅ Appium server is running"
-              exit 0
-            fi
-            echo "Waiting for Appium server to start... ($i/10)"
-            sleep 3
-          done
-          echo "❌ Appium server failed to start"
-          echo "========== ENVIRONMENT INFO =========="
-          node -v || true
-          npm -v || true
-          which appium || true
-          appium -v || true
-          echo "========== JAVA VERSION =========="
-          java -version || true
-          echo "========== ANDROID ENVIRONMENT VARS =========="
-          env | grep ANDROID || true
-          echo "========== PROCESS LIST (appium) =========="
-          ps aux | grep appium || true
-          echo "========== PORT USAGE (4723) =========="
-          lsof -i :4723 || true
-          echo "========== NETSTAT (listening ports) =========="
-          netstat -tuln || true
-          echo "========== DISK SPACE =========="
-          df -h || true
-          echo "========== FREE MEMORY =========="
-          free -m || true
-          echo "========== ANDROID SDK MANAGER =========="
-          yes | sdkmanager --list || true
-          echo "========== FIRST 40 LINES OF appium.log =========="
-          head -40 appium.log || true
-          echo "========== LAST 40 LINES OF appium.log =========="
-          tail -40 appium.log || true
-          echo "========== FULL appium.log =========="
-          cat appium.log || true
-          exit 7
-
-      - name: Upload Appium log
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: appium-log
-          path: appium.log
-          retention-days: 7
+          echo "JAVA_HOME: $JAVA_HOME"
+          java -version
+          echo "ANDROID_HOME: $ANDROID_HOME"
+          ls -l $ANDROID_HOME || true
+          ls -l $ANDROID_HOME/platform-tools || true
+          ls -l $ANDROID_HOME/emulator || true
+          echo "Trying to start Appium in foreground..."
+          appium --base-path /wd/hub --log-level info
 
       - name: Create E2E test script
         working-directory: Android-App-for-Car-Parking-Project

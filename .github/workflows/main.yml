@@ -5,23 +5,20 @@ on:
     branches: [ main, develop ]
     paths:
       - 'Android-App-for-Car-Parking-Project/**'
-      - 'Backend-Implementation-for-Car-Parking-Project/**'
       - '.github/workflows/**'
   pull_request:
     branches: [ main, develop ]
     paths:
       - 'Android-App-for-Car-Parking-Project/**'
-      - 'Backend-Implementation-for-Car-Parking-Project/**'
       - '.github/workflows/**'
   workflow_dispatch:
 
 jobs:
-  e2e-test:
-    name: E2E Appium Android + Flask
+  appium-android-test:
+    name: Appium Android E2E
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      API_BASE_URL: "http://10.0.2.2:5000/"
       TEST_DURATION: 120
     steps:
       - name: Checkout repository with submodules
@@ -30,40 +27,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Initialize and update submodules
-        run: |
-          git submodule update --init --recursive
-          git submodule status
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Start Flask backend in Docker
-        working-directory: Backend-Implementation-for-Car-Parking-Project
-        run: |
-          docker compose down -v || true
-          docker compose up -d --build
-          echo "⏳ Waiting for backend to be ready..."
-          timeout=90
-          while [ $timeout -gt 0 ]; do
-            if curl -s -f http://127.0.0.1:5000/ > /dev/null; then
-              echo "✅ Backend is ready!"
-              break
-            fi
-            echo "Waiting for backend... ($timeout seconds left)"
-            sleep 5
-            timeout=$((timeout-5))
-          done
-          if [ $timeout -le 0 ]; then
-            echo "❌ Backend failed to start in time"; docker compose logs; exit 1;
-          fi
-
-      - name: Enable KVM for Android Emulator
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -79,8 +42,6 @@ jobs:
         working-directory: Android-App-for-Car-Parking-Project
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" >> local.properties
-          echo "API_BASE_URL=${{ env.API_BASE_URL }}" >> local.properties
 
       - name: Grant execute permission for gradlew
         working-directory: Android-App-for-Car-Parking-Project
@@ -89,10 +50,6 @@ jobs:
       - name: Build Debug APK
         working-directory: Android-App-for-Car-Parking-Project
         run: ./gradlew assembleDebug --stacktrace
-        env:
-          ANDROID_HOME: ${{ secrets.ANDROID_HOME }}
-          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
-          API_BASE_URL: ${{ env.API_BASE_URL }}
 
       - name: Extract Android package name
         id: extract_package
@@ -151,48 +108,6 @@ jobs:
           echo "Appium version (after PATH update):"; appium -v || true
           if which appium; then ls -l $(which appium); fi
 
-      - name: Start Appium Server (background, with log)
-        run: |
-          nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
-          for i in {1..10}; do
-            status_code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4723/wd/hub/status)
-            if [ "$status_code" = "200" ]; then
-              echo "✅ Appium server is running"
-              exit 0
-            fi
-            echo "Waiting for Appium server to start... ($i/10)"
-            sleep 3
-          done
-          echo "❌ Appium server failed to start"
-          echo "========== ENVIRONMENT INFO =========="
-          node -v || true
-          npm -v || true
-          which appium || true
-          appium -v || true
-          echo "========== JAVA VERSION =========="
-          java -version || true
-          echo "========== ANDROID ENVIRONMENT VARS =========="
-          env | grep ANDROID || true
-          echo "========== PROCESS LIST (appium) =========="
-          ps aux | grep appium || true
-          echo "========== PORT USAGE (4723) =========="
-          lsof -i :4723 || true
-          echo "========== NETSTAT (listening ports) =========="
-          netstat -tuln || true
-          echo "========== DISK SPACE =========="
-          df -h || true
-          echo "========== FREE MEMORY =========="
-          free -m || true
-          echo "========== ANDROID SDK MANAGER =========="
-          yes | sdkmanager --list || true
-          echo "========== FIRST 40 LINES OF appium.log =========="
-          head -40 appium.log || true
-          echo "========== LAST 40 LINES OF appium.log =========="
-          tail -40 appium.log || true
-          echo "========== FULL appium.log =========="
-          cat appium.log || true
-          exit 7
-
       - name: Create E2E test script
         working-directory: Android-App-for-Car-Parking-Project
         run: |
@@ -244,16 +159,23 @@ jobs:
           heap-size: 1024M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
-          script: cd Android-App-for-Car-Parking-Project && ./e2e_test.sh
-        env:
-          API_BASE_URL: ${{ env.API_BASE_URL }}
-
-      - name: Save Backend Logs
-        if: always()
-        working-directory: Backend-Implementation-for-Car-Parking-Project
-        run: |
-          docker compose logs > ../backend_logs.txt || true
-          docker compose ps > ../backend_status.txt || true
+          script: |
+            nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
+            for i in {1..10}; do
+              status_code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4723/wd/hub/status)
+              if [ "$status_code" = "200" ]; then
+                echo "✅ Appium server is running"
+                break
+              fi
+              echo "Waiting for Appium server to start... ($i/10)"
+              sleep 3
+            done
+            if [ "$status_code" != "200" ]; then
+              echo "❌ Appium server failed to start"
+              cat appium.log
+              exit 7
+            fi
+            ./e2e_test.sh
 
       - name: Upload Android logcat
         uses: actions/upload-artifact@v4
@@ -268,17 +190,7 @@ jobs:
         if: always()
         with:
           name: appium-log
-          path: appium.log
-          retention-days: 14
-
-      - name: Upload Backend logs
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: backend-logs
-          path: |
-            Backend-Implementation-for-Car-Parking-Project/backend_logs.txt
-            Backend-Implementation-for-Car-Parking-Project/backend_status.txt
+          path: Android-App-for-Car-Parking-Project/appium.log
           retention-days: 14
 
       - name: Upload E2E test report
@@ -310,4 +222,3 @@ jobs:
         run: |
           echo "🧹 Cleaning up..."
           pkill -f appium || true
-          docker compose -f Backend-Implementation-for-Car-Parking-Project/docker-compose.yml down -v || true

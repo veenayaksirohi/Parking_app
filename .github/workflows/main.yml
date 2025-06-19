@@ -1,4 +1,4 @@
-name: Android Appium E2E CI/CD
+name: Android Appium E2E CI\CD
 
 on:
   push:

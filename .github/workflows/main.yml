@@ -157,6 +157,8 @@ jobs:
           npm -v || true
           which appium || true
           appium -v || true
+          echo "========== JAVA VERSION =========="
+          java -version || true
           echo "========== ANDROID ENVIRONMENT VARS =========="
           env | grep ANDROID || true
           echo "========== PROCESS LIST (appium) =========="
@@ -165,11 +167,27 @@ jobs:
           lsof -i :4723 || true
           echo "========== NETSTAT (listening ports) =========="
           netstat -tuln || true
+          echo "========== DISK SPACE =========="
+          df -h || true
+          echo "========== FREE MEMORY =========="
+          free -m || true
+          echo "========== ANDROID SDK MANAGER =========="
+          yes | sdkmanager --list || true
           echo "========== FIRST 40 LINES OF appium.log =========="
           head -40 appium.log || true
           echo "========== LAST 40 LINES OF appium.log =========="
           tail -40 appium.log || true
+          echo "========== FULL appium.log =========="
+          cat appium.log || true
           exit 7
+
+      - name: Upload Appium log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appium-log
+          path: appium.log
+          retention-days: 7
 
       - name: Create E2E test script
         working-directory: Android-App-for-Car-Parking-Project

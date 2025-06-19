@@ -115,9 +115,18 @@ jobs:
           cat > e2e_test.sh << 'EOF'
           #!/bin/bash
           set -e
+          # Enhanced emulator boot with timeout and error handling
           echo "⏳ Waiting for emulator to boot..."
-          adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
+          timeout 300 adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;' || {
+            echo "❌ Emulator failed to boot within 5 minutes"
+            exit 1
+          }
           echo "✅ Emulator booted."
+          # Emulator readiness tweaks
+          echo "🔍 Checking emulator readiness..."
+          adb shell "settings put global window_animation_scale 0.0"
+          adb shell "settings put global transition_animation_scale 0.0"
+          adb shell "settings put global animator_duration_scale 0.0"
           adb logcat -c
           mkdir -p screenshots
           echo "📋 Starting logcat capture..."
@@ -158,20 +167,20 @@ jobs:
           avd-name: pixel_2_api_28
           ram-size: 4096M
           heap-size: 1024M
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -memory 4096 -partition-size 4096
           disable-animations: true
           script: |
+            # Robust Appium server health check for 'ready' in status
             nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
             for i in {1..10}; do
-              status_code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4723/wd/hub/status)
-              if [ "$status_code" = "200" ]; then
-                echo "✅ Appium server is running"
+              if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q 'ready'; then
+                echo "✅ Appium server is ready"
                 break
               fi
-              echo "Waiting for Appium server to start... ($i/10)"
+              echo "Waiting for Appium server... ($i/10)"
               sleep 3
             done
-            if [ "$status_code" != "200" ]; then
+            if ! curl -s http://127.0.0.1:4723/wd/hub/status | grep -q 'ready'; then
               echo "❌ Appium server failed to start"
               cat appium.log
               exit 7
@@ -223,3 +232,6 @@ jobs:
         run: |
           echo "🧹 Cleaning up..."
           pkill -f appium || true
+          pkill -f adb || true
+          # Show any remaining appium/adb processes
+          ps aux | grep -E "(appium|adb)" | grep -v grep || true

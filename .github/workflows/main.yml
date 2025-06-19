@@ -42,6 +42,7 @@ jobs:
         working-directory: Android-App-for-Car-Parking-Project
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" >> local.properties
 
       - name: Grant execute permission for gradlew
         working-directory: Android-App-for-Car-Parking-Project

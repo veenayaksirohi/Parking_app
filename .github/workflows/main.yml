@@ -157,6 +157,47 @@ jobs:
           EOF
           chmod +x e2e_test.sh
 
+      - name: Create Appium startup script
+        working-directory: Android-App-for-Car-Parking-Project
+        run: |
+          cat > start_appium_and_test.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          echo "🚀 Starting Appium server..."
+          # Start Appium server in background and capture its log in repo root
+          nohup appium --base-path /wd/hub --log-level info > ../appium.log 2>&1 &
+          APPIUM_PID=$!
+          
+          echo "⏳ Waiting for Appium server to be ready..."
+          # Wait up to 30s for Appium to respond as "ready"
+          READY=false
+          for i in {1..10}; do
+            if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q '"ready"'; then
+              echo "✅ Appium server is ready"
+              READY=true
+              break
+            fi
+            echo "Waiting for Appium server... ($i/10)"
+            sleep 3
+          done
+          
+          if [ "$READY" = false ]; then
+            echo "❌ Appium server failed to start — dumping logs"
+            cat ../appium.log
+            kill $APPIUM_PID || true
+            exit 7
+          fi
+          
+          echo "🧪 Running E2E tests..."
+          # Run the E2E test script
+          ./e2e_test.sh
+          
+          echo "🧹 Cleaning up Appium..."
+          kill $APPIUM_PID || true
+          EOF
+          chmod +x start_appium_and_test.sh
+
       - name: Run E2E Tests on Android Emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -171,28 +212,7 @@ jobs:
           disable-animations: true
           script: |
             cd Android-App-for-Car-Parking-Project
-
-            # Start Appium server in background and capture its log in repo root
-            nohup appium --base-path /wd/hub --log-level info > ../appium.log 2>&1 &
-
-            # Wait up to 30s for Appium to respond as "ready"
-            for i in 1 2 3 4 5 6 7 8 9 10; do
-              if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q '"ready"'; then
-                echo "✅ Appium server is ready"
-                break
-              fi
-              echo "Waiting for Appium server... ($i/10)"
-              sleep 3
-            done
-
-            if ! curl -s http://127.0.0.1:4723/wd/hub/status | grep -q '"ready"'; then
-              echo "❌ Appium server failed to start — dumping logs"
-              cat ../appium.log
-              exit 7
-            fi
-
-            # now run your shell‐script test harness
-            ./e2e_test.sh
+            ./start_appium_and_test.sh
 
       - name: Upload Android logcat
         uses: actions/upload-artifact@v4

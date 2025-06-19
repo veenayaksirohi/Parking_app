@@ -170,15 +170,16 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -memory 4096 -partition-size 4096
           disable-animations: true
           script: |
-            # Robust Appium server health check for 'ready' in status
             nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
-            for i in {1..10}; do
+            i=1
+            while [ $i -le 10 ]; do
               if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q 'ready'; then
                 echo "✅ Appium server is ready"
                 break
               fi
               echo "Waiting for Appium server... ($i/10)"
               sleep 3
+              i=$((i + 1))
             done
             if ! curl -s http://127.0.0.1:4723/wd/hub/status | grep -q 'ready'; then
               echo "❌ Appium server failed to start"

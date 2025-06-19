@@ -1,4 +1,4 @@
-name: Complete Appium Test Pipeline (Frontend + Backend)
+name: Android Appium E2E CI/CD
 
 on:
   push:
@@ -14,37 +14,15 @@ on:
       - 'Backend-Implementation-for-Car-Parking-Project/**'
       - '.github/workflows/**'
   workflow_dispatch:
-    inputs:
-      test_duration:
-        description: 'Test duration in seconds'
-        required: false
-        default: '120'
-        type: string
-      api_level:
-        description: 'Android API level'
-        required: false
-        default: '28'
-        type: choice
-        options:
-          - '28'
-          - '29'
-          - '30'
-          - '31'
-
-env:
-  API_BASE_URL: "http://10.0.2.2:5000/"
-  TEST_DURATION: ${{ github.event.inputs.test_duration || '120' }}
-  ANDROID_API_LEVEL: ${{ github.event.inputs.api_level || '28' }}
 
 jobs:
-  prepare-and-validate:
-    name: 🔍 Prepare & Validate
+  e2e-test:
+    name: E2E Appium Android + Flask
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      android-package: ${{ steps.extract-package.outputs.package_name }}
-      backend-ready: ${{ steps.validate-backend.outputs.ready }}
-    
+    timeout-minutes: 40
+    env:
+      API_BASE_URL: "http://10.0.2.2:5000/"
+      TEST_DURATION: 120
     steps:
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
@@ -57,28 +35,67 @@ jobs:
         run: |
           git submodule update --init --recursive
           git submodule status
-          if [ -d "Android-App-for-Car-Parking-Project" ]; then
-            cd Android-App-for-Car-Parking-Project && git checkout main || git checkout master || true
-          fi
-          if [ -d "Backend-Implementation-for-Car-Parking-Project" ]; then
-            cd Backend-Implementation-for-Car-Parking-Project && git checkout main || git checkout master || true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start Flask backend in Docker
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          docker compose down -v || true
+          docker compose up -d --build
+          echo "⏳ Waiting for backend to be ready..."
+          timeout=90
+          while [ $timeout -gt 0 ]; do
+            if curl -s -f http://127.0.0.1:5000/ > /dev/null; then
+              echo "✅ Backend is ready!"
+              break
+            fi
+            echo "Waiting for backend... ($timeout seconds left)"
+            sleep 5
+            timeout=$((timeout-5))
+          done
+          if [ $timeout -le 0 ]; then
+            echo "❌ Backend failed to start in time"; docker compose logs; exit 1;
           fi
 
-      - name: Validate project structure
+      - name: Enable KVM for Android Emulator
         run: |
-          echo "🔍 Validating project structure..."
-          if [ ! -d "Android-App-for-Car-Parking-Project" ]; then
-            echo "❌ Android project directory not found"
-            exit 1
-          fi
-          if [ ! -d "Backend-Implementation-for-Car-Parking-Project" ]; then
-            echo "❌ Backend project directory not found"
-            exit 1
-          fi
-          echo "✅ Project structure validated"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create local.properties for Android
+        working-directory: Android-App-for-Car-Parking-Project
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" >> local.properties
+          echo "API_BASE_URL=${{ env.API_BASE_URL }}" >> local.properties
+
+      - name: Grant execute permission for gradlew
+        working-directory: Android-App-for-Car-Parking-Project
+        run: chmod +x ./gradlew
+
+      - name: Build Debug APK
+        working-directory: Android-App-for-Car-Parking-Project
+        run: ./gradlew assembleDebug --stacktrace
+        env:
+          ANDROID_HOME: ${{ secrets.ANDROID_HOME }}
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          API_BASE_URL: ${{ env.API_BASE_URL }}
 
       - name: Extract Android package name
-        id: extract-package
+        id: extract_package
         working-directory: Android-App-for-Car-Parking-Project
         run: |
           if [ -f "app/build.gradle.kts" ]; then
@@ -93,194 +110,12 @@ jobs:
             echo "ERROR: Cannot find app/build.gradle.kts or app/build.gradle"
             exit 1
           fi
-
           if [ -z "$PACKAGE_NAME" ]; then
-            PACKAGE_NAME="com.example.carparkingapp"  # Fallback based on your test file
+            PACKAGE_NAME="com.example.carparkingapp"
             echo "⚠️ Using fallback package name: $PACKAGE_NAME"
           fi
-
-          echo "package_name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
-          echo "✅ Android package: $PACKAGE_NAME"
-
-      - name: Validate backend configuration
-        id: validate-backend
-        working-directory: Backend-Implementation-for-Car-Parking-Project
-        run: |
-          if [ -f "docker-compose.yml" ] || [ -f "docker-compose.yaml" ]; then
-            echo "ready=true" >> $GITHUB_OUTPUT
-            echo "✅ Backend Docker configuration found"
-          else
-            echo "ready=false" >> $GITHUB_OUTPUT
-            echo "⚠️ Backend Docker configuration not found"
-          fi
-
-  build-backend:
-    name: 🏗️ Build & Start Backend
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: prepare-and-validate
-    if: needs.prepare-and-validate.outputs.backend-ready == 'true'
-    
-    steps:
-      - name: Checkout repository with submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Initialize submodules
-        run: git submodule update --init --recursive
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Start backend services
-        working-directory: Backend-Implementation-for-Car-Parking-Project
-        run: |
-          echo "🚀 Starting backend services..."
-          docker compose down -v || true
-          docker compose up -d --build
-          echo "⏳ Waiting for services to initialize..."
-          sleep 15
-
-      - name: Wait for backend readiness
-        working-directory: Backend-Implementation-for-Car-Parking-Project
-        run: |
-          echo "⏳ Waiting for Flask server to be ready..."
-          timeout=120
-          while [ $timeout -gt 0 ]; do
-            if docker compose logs web | grep -q "Running on http://" && \
-               docker compose logs web | grep -q "Debugger is active!" || \
-               docker compose logs web | grep -q "Serving Flask app"; then
-              echo "✅ Flask server is running!"
-              sleep 5
-              if curl -s -f http://127.0.0.1:5000/ > /dev/null || \
-                 curl -s -f http://127.0.0.1:5000/health > /dev/null; then
-                echo "✅ Backend is responding to requests!"
-                break
-              fi
-            fi
-            echo "⏳ Waiting for Flask server... ($timeout seconds remaining)"
-            sleep 5
-            timeout=$((timeout-5))
-          done
-
-          if [ $timeout -le 0 ]; then
-            echo "❌ Backend failed to start within timeout"
-            echo "Docker compose status:"
-            docker compose ps
-            echo "Backend logs:"
-            docker compose logs --tail=50
-            exit 1
-          fi
-
-      - name: Test backend endpoints
-        run: |
-          echo "🧪 Testing backend endpoints..."
-          # Test basic connectivity
-          curl -s -f http://127.0.0.1:5000/ > /dev/null && echo "✅ Root endpoint working" || echo "❌ Root endpoint failed"
-          # Test API health if available
-          curl -s -f http://127.0.0.1:5000/health > /dev/null && echo "✅ Health endpoint working" || echo "⚠️ Health endpoint not available"
-          # Test API endpoints if available
-          curl -s -f http://127.0.0.1:5000/api/ > /dev/null && echo "✅ API endpoint working" || echo "⚠️ API endpoint not available"
-
-  build-android:
-    name: 📱 Build Android APK
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: prepare-and-validate
-    
-    steps:
-      - name: Checkout repository with submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Initialize submodules
-        run: git submodule update --init --recursive
-
-      - name: Enable KVM for Android builds
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: gradle
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Create local.properties
-        working-directory: Android-App-for-Car-Parking-Project
-        run: |
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
-          echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" >> local.properties
-          echo "API_BASE_URL=${{ env.API_BASE_URL }}" >> local.properties
-
-      - name: Grant execute permission for gradlew
-        working-directory: Android-App-for-Car-Parking-Project
-        run: chmod +x ./gradlew
-
-      - name: Clean and build Debug APK
-        working-directory: Android-App-for-Car-Parking-Project
-        run: |
-          ./gradlew clean
-          ./gradlew assembleDebug --stacktrace --info
-        env:
-          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
-          API_BASE_URL: ${{ env.API_BASE_URL }}
-
-      - name: Verify APK exists
-        working-directory: Android-App-for-Car-Parking-Project
-        run: |
-          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-          if [ -f "$APK_PATH" ]; then
-            echo "✅ APK built successfully: $APK_PATH"
-            ls -la "$APK_PATH"
-          else
-            echo "❌ APK not found at expected location"
-            find . -name "*.apk" -type f || echo "No APK files found"
-            exit 1
-          fi
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-apk
-          path: Android-App-for-Car-Parking-Project/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 7
-
-  appium-tests:
-    name: 🧪 Run Appium Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    needs: [prepare-and-validate, build-backend, build-android]
-    if: always() && (needs.build-android.result == 'success')
-    
-    steps:
-      - name: Checkout repository with submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Initialize submodules
-        run: git submodule update --init --recursive
-
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
+          echo "✔️ Found package: $PACKAGE_NAME"
 
       - name: Set up Python for Appium tests
         uses: actions/setup-python@v4
@@ -292,332 +127,104 @@ jobs:
         working-directory: Android-App-for-Car-Parking-Project/tests
         run: |
           python -m pip install --upgrade pip
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-          else
-            # Install basic Appium dependencies
-            pip install appium-python-client selenium pytest pytest-html pytest-xdist
-          fi
+          pip install -r requirements.txt
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - name: Install Node.js (for Appium)
+        uses: actions/setup-node@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: gradle
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Download APK artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: android-apk
-          path: Android-App-for-Car-Parking-Project/app/build/outputs/apk/debug/
-
-      - name: Start Backend Services (if available)
-        working-directory: Backend-Implementation-for-Car-Parking-Project
-        run: |
-          if [ -f "docker-compose.yml" ] || [ -f "docker-compose.yaml" ]; then
-            echo "🚀 Starting backend services for integration testing..."
-            docker compose down -v || true
-            docker compose up -d --build
-            echo "⏳ Waiting for backend to stabilize..."
-            sleep 20
-            
-            # Wait for backend readiness
-            timeout=60
-            while [ $timeout -gt 0 ]; do
-              if curl -s -f http://127.0.0.1:5000/ > /dev/null; then
-                echo "✅ Backend is ready for integration testing!"
-                break
-              fi
-              echo "⏳ Waiting for backend... ($timeout seconds remaining)"
-              sleep 5
-              timeout=$((timeout-5))
-            done
-          else
-            echo "⚠️ No backend configuration found, running frontend-only tests"
-          fi
+          node-version: '20'
 
       - name: Install and Start Appium Server
         run: |
-          echo "📱 Installing Appium..."
           npm install -g appium@next
           appium driver install uiautomator2
-          appium driver list --installed
-          
-          echo "🚀 Starting Appium server..."
-          appium --base-path /wd/hub --log-level info &
-          APPIUM_PID=$!
-          echo "APPIUM_PID=$APPIUM_PID" >> $GITHUB_ENV
-          
-          echo "⏳ Waiting for Appium server to start..."
+          nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
           sleep 10
-          
-          # Verify Appium server is running
-          if curl -s http://127.0.0.1:4723/wd/hub/status > /dev/null; then
+          if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q 'status'; then
             echo "✅ Appium server is running"
           else
-            echo "❌ Appium server failed to start"
-            exit 1
+            echo "❌ Appium server failed to start"; cat appium.log; exit 1;
           fi
 
-      - name: Create comprehensive test script
+      - name: Create E2E test script
         working-directory: Android-App-for-Car-Parking-Project
         run: |
-          cat > comprehensive_test.sh << 'EOF'
+          cat > e2e_test.sh << 'EOF'
           #!/bin/bash
           set -e
-
-          echo "🔍 Test Configuration:"
-          echo "  - Package: ${{ needs.prepare-and-validate.outputs.android-package }}"
-          echo "  - API Level: ${{ env.ANDROID_API_LEVEL }}"
-          echo "  - Test Duration: ${{ env.TEST_DURATION }}s"
-          echo "  - Backend URL: ${{ env.API_BASE_URL }}"
-
-          echo "⏳ Waiting for emulator boot..."
+          echo "⏳ Waiting for emulator to boot..."
           adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
-          echo "✅ Emulator ready!"
-
-          echo "📱 Device information:"
-          adb shell getprop ro.build.version.release
-          adb shell getprop ro.product.model
-          adb shell wm size
-
-          echo "🧹 Preparing test environment..."
+          echo "✅ Emulator booted."
           adb logcat -c
-          mkdir -p screenshots test-results
-
+          mkdir -p screenshots
           echo "📋 Starting logcat capture..."
           adb logcat > logcat.txt &
           LOGCAT_PID=$!
-
           echo "🎥 Starting screen recording..."
-          adb shell screenrecord --time-limit=300 /sdcard/appium_test_recording.mp4 &
-          RECORDING_PID=$!
-
+          adb shell screenrecord --time-limit=180 /sdcard/e2e_recording.mp4 &
+          sleep 5
           echo "📦 Installing APK..."
-          adb install -r -d app/build/outputs/apk/debug/app-debug.apk
-
-          echo "🌐 Testing backend connectivity from emulator..."
-          if adb shell "curl -s -m 10 -f http://10.0.2.2:5000/" > /dev/null 2>&1; then
-            echo "✅ Backend reachable from emulator"
-            BACKEND_AVAILABLE=true
-          else
-            echo "⚠️ Backend not reachable from emulator (will run app-only tests)"
-            BACKEND_AVAILABLE=false
-          fi
-
-          echo "🧪 Running Appium tests..."
+          adb install -r app/build/outputs/apk/debug/app-debug.apk
+          echo "🚀 Launching app..."
+          adb shell "am start -n ${PACKAGE_NAME}/.MainActivity -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"
+          sleep 10
+          echo "🧪 Running Appium Python tests..."
           cd tests
-          
-          # Run the actual Appium tests if they exist
-          if [ -f "test_parking_app.py" ]; then
-            echo "🧪 Running structured Appium tests..."
-            python -m pytest test_parking_app.py -v \
-              --html=../test-results/appium-report.html \
-              --self-contained-html \
-              --tb=short \
-              --capture=no || echo "⚠️ Some Appium tests failed, continuing..."
-          else
-            echo "⚠️ No structured tests found, running basic app interaction..."
-            
-            # Basic app launch and interaction test
-            python3 << 'PYTHON_EOF'
-          import time
-          from appium import webdriver
-          from appium.options.android import UiAutomator2Options
-          from appium.webdriver.common.appiumby import AppiumBy
-
-          try:
-              print("🚀 Launching app for basic interaction test...")
-              
-              options = UiAutomator2Options()
-              options.platform_name = 'Android'
-              options.automation_name = 'UiAutomator2'
-              options.device_name = 'Android Emulator'
-              options.app_package = '${{ needs.prepare-and-validate.outputs.android-package }}'
-              options.app_activity = '${{ needs.prepare-and-validate.outputs.android-package }}.MainActivity'
-              options.new_command_timeout = 60
-              
-              driver = webdriver.Remote('http://127.0.0.1:4723', options=options)
-              print("✅ Connected to app via Appium")
-              
-              # Basic app interaction
-              time.sleep(5)  # Let app load
-              
-              # Take screenshot
-              driver.save_screenshot('../screenshots/app_launch.png')
-              print("📸 Screenshot taken")
-              
-              # Try to find and interact with basic elements
-              try:
-                  # Look for common UI elements
-                  elements = driver.find_elements(AppiumBy.CLASS_NAME, "android.widget.Button")
-                  print(f"🔍 Found {len(elements)} buttons")
-                  
-                  if elements:
-                      elements[0].click()
-                      time.sleep(2)
-                      driver.save_screenshot('../screenshots/after_click.png')
-                      print("🖱️ Clicked first button and took screenshot")
-                  
-              except Exception as e:
-                  print(f"⚠️ Element interaction failed: {e}")
-              
-              # Keep app running for the specified duration
-              duration = int('${{ env.TEST_DURATION }}')
-              print(f"⏲️ Running for {duration} seconds...")
-              
-              for i in range(0, duration, 15):
-                  time.sleep(15)
-                  remaining = duration - i - 15
-                  if remaining > 0:
-                      driver.save_screenshot(f'../screenshots/runtime_{i+15}s.png')
-                      print(f"📸 Runtime screenshot at {i+15}s (remaining: {remaining}s)")
-              
-              driver.save_screenshot('../screenshots/final.png')
-              print("📸 Final screenshot taken")
-              
-              driver.quit()
-              print("✅ Basic interaction test completed")
-              
-          except Exception as e:
-              print(f"❌ Basic interaction test failed: {e}")
-              import traceback
-              traceback.print_exc()
-          PYTHON_EOF
-          fi
-
+          pytest --html=../test-report.html --self-contained-html || true
           cd ..
-
           echo "🛑 Stopping app..."
-          adb shell am force-stop "${{ needs.prepare-and-validate.outputs.android-package }}" || true
-          
-          echo "🎥 Stopping screen recording..."
-          adb shell pkill -SIGINT screenrecord || true
-          sleep 3
-          adb pull /sdcard/appium_test_recording.mp4 screenshots/ || echo "⚠️ Could not retrieve screen recording"
-
-          echo "🗒️ Stopping logcat capture..."
+          adb shell am force-stop "$PACKAGE_NAME" || true
+          echo "🎥 Pulling screen recording..."
+          adb pull /sdcard/e2e_recording.mp4 screenshots/ || true
+          echo "🗒️ Stopping logcat..."
           kill $LOGCAT_PID || true
           sleep 2
-
-          echo "📊 Test Summary:"
-          echo "  - Screenshots: $(ls screenshots/ | wc -l)"
-          echo "  - Logcat size: $(wc -l < logcat.txt) lines"
-          echo "  - Backend available: $BACKEND_AVAILABLE"
-
-          echo "🎉 Comprehensive test completed!"
+          echo "📂 Screenshots:"
+          ls -la screenshots/
+          echo "🎉 E2E test script completed."
           EOF
-          chmod +x comprehensive_test.sh
+          chmod +x e2e_test.sh
 
-      - name: Run Comprehensive Tests with Android Emulator
+      - name: Run E2E Tests on Android Emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: ${{ env.ANDROID_API_LEVEL }}
+          api-level: 28
           target: default
           arch: x86_64
           profile: pixel_2
-          avd-name: test_avd
+          avd-name: pixel_2_api_28
           ram-size: 4096M
           heap-size: 1024M
-          disk-size: 8192M
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -memory 4096
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
-          script: cd Android-App-for-Car-Parking-Project && ./comprehensive_test.sh
+          script: cd Android-App-for-Car-Parking-Project && ./e2e_test.sh
+        env:
+          API_BASE_URL: ${{ env.API_BASE_URL }}
 
       - name: Save Backend Logs
         if: always()
         working-directory: Backend-Implementation-for-Car-Parking-Project
         run: |
-          if [ -f "docker-compose.yml" ] || [ -f "docker-compose.yaml" ]; then
-            echo "💾 Saving backend logs..."
-            docker compose logs > ../backend_logs.txt || true
-            docker compose ps > ../backend_status.txt || true
-          fi
+          docker compose logs > ../backend_logs.txt || true
+          docker compose ps > ../backend_status.txt || true
 
-      - name: Upload Test Results
+      - name: Upload Artifacts (APK, logs, screen recording, test report)
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: appium-test-results
+          name: e2e-artifacts
           path: |
-            Android-App-for-Car-Parking-Project/test-results/
+            Android-App-for-Car-Parking-Project/app/build/outputs/apk/debug/app-debug.apk
             Android-App-for-Car-Parking-Project/screenshots/
             Android-App-for-Car-Parking-Project/logcat.txt
+            Android-App-for-Car-Parking-Project/test-report.html
+            Backend-Implementation-for-Car-Parking-Project/backend_logs.txt
+            Backend-Implementation-for-Car-Parking-Project/backend_status.txt
           retention-days: 14
-
-      - name: Upload Backend Logs
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: backend-logs
-          path: |
-            backend_logs.txt
-            backend_status.txt
-          retention-days: 7
 
       - name: Cleanup
         if: always()
         run: |
           echo "🧹 Cleaning up..."
-          # Stop Appium server
-          if [ ! -z "${APPIUM_PID:-}" ]; then
-            kill $APPIUM_PID || true
-          fi
-          # Stop backend if running
-          if [ -d "Backend-Implementation-for-Car-Parking-Project" ]; then
-            cd Backend-Implementation-for-Car-Parking-Project
-            docker compose down -v || true
-          fi
-
-  report:
-    name: 📊 Generate Test Report
-    runs-on: ubuntu-latest
-    needs: [prepare-and-validate, build-backend, build-android, appium-tests]
-    if: always()
-    
-    steps:
-      - name: Download test artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: appium-test-results
-          path: test-results
-
-      - name: Generate summary report
-        run: |
-          cat > test-summary.md << 'EOF'
-          # 🧪 Appium Test Pipeline Summary
-          
-          ## 📋 Test Configuration
-          - **Android Package**: ${{ needs.prepare-and-validate.outputs.android-package }}
-          - **API Level**: ${{ env.ANDROID_API_LEVEL }}
-          - **Test Duration**: ${{ env.TEST_DURATION }}s
-          - **Backend Available**: ${{ needs.prepare-and-validate.outputs.backend-ready }}
-          
-          ## 🏗️ Build Results
-          - **Backend Build**: ${{ needs.build-backend.result }}
-          - **Android Build**: ${{ needs.build-android.result }}
-          - **Appium Tests**: ${{ needs.appium-tests.result }}
-          
-          ## 📱 Test Artifacts
-          - Screenshots captured during test execution
-          - Android logcat output
-          - Backend service logs (if available)
-          - Screen recording of test execution
-          
-          ## 🔍 Next Steps
-          - Review screenshots for UI issues
-          - Check logcat for runtime errors
-          - Verify backend integration points
-          - Update test cases based on findings
-          EOF
-
-      - name: Upload summary report
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-summary
-          path: test-summary.md
-          retention-days: 30
+          pkill -f appium || true
+          docker compose -f Backend-Implementation-for-Car-Parking-Project/docker-compose.yml down -v || true

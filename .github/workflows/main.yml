@@ -129,16 +129,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install latest Appium and UiAutomator2 driver
         run: |
           npm install -g appium@latest
           appium driver install uiautomator2@latest
 
-      - name: Start Appium Server
+      - name: Start Appium Server (robust HTTP 200 check)
         run: |
           nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
           for i in {1..10}; do
-            if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q 'status'; then
+            status_code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4723/wd/hub/status)
+            if [ "$status_code" = "200" ]; then
               echo "✅ Appium server is running"
               exit 0
             fi

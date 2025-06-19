@@ -129,22 +129,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Node.js (for Appium)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install and Start Appium Server
+      - name: Install latest Appium and UiAutomator2 driver
         run: |
-          npm install -g appium@next
-          appium driver install uiautomator2
+          npm install -g appium@latest
+          appium driver install uiautomator2@latest
+
+      - name: Start Appium Server
+        run: |
           nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
-          sleep 10
-          if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q 'status'; then
-            echo "✅ Appium server is running"
-          else
-            echo "❌ Appium server failed to start"; cat appium.log; exit 1;
-          fi
+          for i in {1..10}; do
+            if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q 'status'; then
+              echo "✅ Appium server is running"
+              exit 0
+            fi
+            echo "Waiting for Appium server to start... ($i/10)"
+            sleep 3
+          done
+          echo "❌ Appium server failed to start"; cat appium.log; exit 1
 
       - name: Create E2E test script
         working-directory: Android-App-for-Car-Parking-Project

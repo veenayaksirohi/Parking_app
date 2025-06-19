@@ -158,7 +158,6 @@ jobs:
           chmod +x e2e_test.sh
 
       - name: Create Appium startup script
-        working-directory: Android-App-for-Car-Parking-Project
         run: |
           cat > start_appium_and_test.sh << 'EOF'
           #!/bin/bash
@@ -166,7 +165,7 @@ jobs:
           
           echo "🚀 Starting Appium server..."
           # Start Appium server in background and capture its log in repo root
-          nohup appium --base-path /wd/hub --log-level info > ../appium.log 2>&1 &
+          nohup appium --base-path /wd/hub --log-level info > Android-App-for-Car-Parking-Project/appium.log 2>&1 &
           APPIUM_PID=$!
           
           echo "⏳ Waiting for Appium server to be ready..."
@@ -184,14 +183,16 @@ jobs:
           
           if [ "$READY" = false ]; then
             echo "❌ Appium server failed to start — dumping logs"
-            cat ../appium.log
+            cat Android-App-for-Car-Parking-Project/appium.log
             kill $APPIUM_PID || true
             exit 7
           fi
           
           echo "🧪 Running E2E tests..."
           # Run the E2E test script
+          cd Android-App-for-Car-Parking-Project
           ./e2e_test.sh
+          cd ..
           
           echo "🧹 Cleaning up Appium..."
           kill $APPIUM_PID || true
@@ -211,7 +212,6 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -memory 4096 -partition-size 4096
           disable-animations: true
           script: |
-            cd Android-App-for-Car-Parking-Project
             ./start_appium_and_test.sh
 
       - name: Upload Android logcat

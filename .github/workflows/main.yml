@@ -151,7 +151,25 @@ jobs:
             echo "Waiting for Appium server to start... ($i/10)"
             sleep 3
           done
-          echo "❌ Appium server failed to start"; cat appium.log; exit 1
+          echo "❌ Appium server failed to start"
+          echo "========== ENVIRONMENT INFO =========="
+          node -v || true
+          npm -v || true
+          which appium || true
+          appium -v || true
+          echo "========== ANDROID ENVIRONMENT VARS =========="
+          env | grep ANDROID || true
+          echo "========== PROCESS LIST (appium) =========="
+          ps aux | grep appium || true
+          echo "========== PORT USAGE (4723) =========="
+          lsof -i :4723 || true
+          echo "========== NETSTAT (listening ports) =========="
+          netstat -tuln || true
+          echo "========== FIRST 40 LINES OF appium.log =========="
+          head -40 appium.log || true
+          echo "========== LAST 40 LINES OF appium.log =========="
+          tail -40 appium.log || true
+          exit 7
 
       - name: Create E2E test script
         working-directory: Android-App-for-Car-Parking-Project

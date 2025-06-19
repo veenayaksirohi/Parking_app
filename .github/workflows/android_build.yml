@@ -10,6 +10,8 @@ on:
     paths:
       - '**'
   workflow_dispatch:
+  repository_dispatch:
+    types: [submodule-updated] # Triggered by submodule repo
 
 jobs:
   run-app:

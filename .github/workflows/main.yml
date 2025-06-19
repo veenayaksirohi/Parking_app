@@ -151,16 +151,47 @@ jobs:
           echo "Appium version (after PATH update):"; appium -v || true
           if which appium; then ls -l $(which appium); fi
 
-      - name: Start Appium Server (foreground, print all output)
+      - name: Start Appium Server (background, with log)
         run: |
-          echo "JAVA_HOME: $JAVA_HOME"
-          java -version
-          echo "ANDROID_HOME: $ANDROID_HOME"
-          ls -l $ANDROID_HOME || true
-          ls -l $ANDROID_HOME/platform-tools || true
-          ls -l $ANDROID_HOME/emulator || true
-          echo "Trying to start Appium in foreground..."
-          appium --base-path /wd/hub --log-level info
+          nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
+          for i in {1..10}; do
+            status_code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4723/wd/hub/status)
+            if [ "$status_code" = "200" ]; then
+              echo "✅ Appium server is running"
+              exit 0
+            fi
+            echo "Waiting for Appium server to start... ($i/10)"
+            sleep 3
+          done
+          echo "❌ Appium server failed to start"
+          echo "========== ENVIRONMENT INFO =========="
+          node -v || true
+          npm -v || true
+          which appium || true
+          appium -v || true
+          echo "========== JAVA VERSION =========="
+          java -version || true
+          echo "========== ANDROID ENVIRONMENT VARS =========="
+          env | grep ANDROID || true
+          echo "========== PROCESS LIST (appium) =========="
+          ps aux | grep appium || true
+          echo "========== PORT USAGE (4723) =========="
+          lsof -i :4723 || true
+          echo "========== NETSTAT (listening ports) =========="
+          netstat -tuln || true
+          echo "========== DISK SPACE =========="
+          df -h || true
+          echo "========== FREE MEMORY =========="
+          free -m || true
+          echo "========== ANDROID SDK MANAGER =========="
+          yes | sdkmanager --list || true
+          echo "========== FIRST 40 LINES OF appium.log =========="
+          head -40 appium.log || true
+          echo "========== LAST 40 LINES OF appium.log =========="
+          tail -40 appium.log || true
+          echo "========== FULL appium.log =========="
+          cat appium.log || true
+          exit 7
 
       - name: Create E2E test script
         working-directory: Android-App-for-Car-Parking-Project
@@ -224,18 +255,54 @@ jobs:
           docker compose logs > ../backend_logs.txt || true
           docker compose ps > ../backend_status.txt || true
 
-      - name: Upload Artifacts (APK, logs, screen recording, test report)
+      - name: Upload Android logcat
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: e2e-artifacts
+          name: android-logcat
+          path: Android-App-for-Car-Parking-Project/logcat.txt
+          retention-days: 14
+
+      - name: Upload Appium log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appium-log
+          path: appium.log
+          retention-days: 14
+
+      - name: Upload Backend logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-logs
           path: |
-            Android-App-for-Car-Parking-Project/app/build/outputs/apk/debug/app-debug.apk
-            Android-App-for-Car-Parking-Project/screenshots/
-            Android-App-for-Car-Parking-Project/logcat.txt
-            Android-App-for-Car-Parking-Project/test-report.html
             Backend-Implementation-for-Car-Parking-Project/backend_logs.txt
             Backend-Implementation-for-Car-Parking-Project/backend_status.txt
+          retention-days: 14
+
+      - name: Upload E2E test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-report
+          path: Android-App-for-Car-Parking-Project/test-report.html
+          retention-days: 14
+
+      - name: Upload Screenshots and Recordings
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-and-recordings
+          path: Android-App-for-Car-Parking-Project/screenshots/
+          retention-days: 14
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-debug-apk
+          path: Android-App-for-Car-Parking-Project/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
 
       - name: Cleanup

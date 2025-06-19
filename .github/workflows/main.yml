@@ -109,70 +109,23 @@ jobs:
           echo "Appium version (after PATH update):"; appium -v || true
           if which appium; then ls -l $(which appium); fi
 
-      - name: Create E2E test script
-        working-directory: Android-App-for-Car-Parking-Project
+      - name: Create test scripts
         run: |
-          cat > e2e_test.sh << 'EOF'
-          #!/bin/bash
-          set -e
-          # Enhanced emulator boot with timeout and error handling
-          echo "⏳ Waiting for emulator to boot..."
-          timeout 300 adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;' || {
-            echo "❌ Emulator failed to boot within 5 minutes"
-            exit 1
-          }
-          echo "✅ Emulator booted."
-          # Emulator readiness tweaks
-          echo "🔍 Checking emulator readiness..."
-          adb shell "settings put global window_animation_scale 0.0"
-          adb shell "settings put global transition_animation_scale 0.0"
-          adb shell "settings put global animator_duration_scale 0.0"
-          adb logcat -c
-          mkdir -p screenshots
-          echo "📋 Starting logcat capture..."
-          adb logcat > logcat.txt &
-          LOGCAT_PID=$!
-          echo "🎥 Starting screen recording..."
-          adb shell screenrecord --time-limit=180 /sdcard/e2e_recording.mp4 &
-          sleep 5
-          echo "📦 Installing APK..."
-          adb install -r app/build/outputs/apk/debug/app-debug.apk
-          echo "🚀 Launching app..."
-          adb shell "am start -n ${PACKAGE_NAME}/.MainActivity -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"
-          sleep 10
-          echo "🧪 Running Appium Python tests..."
-          cd tests
-          pytest --html=../test-report.html --self-contained-html || true
-          cd ..
-          echo "🛑 Stopping app..."
-          adb shell am force-stop "$PACKAGE_NAME" || true
-          echo "🎥 Pulling screen recording..."
-          adb pull /sdcard/e2e_recording.mp4 screenshots/ || true
-          echo "🗒️ Stopping logcat..."
-          kill $LOGCAT_PID || true
-          sleep 2
-          echo "📂 Screenshots:"
-          ls -la screenshots/
-          echo "🎉 E2E test script completed."
-          EOF
-          chmod +x e2e_test.sh
-
-      - name: Create Appium startup script
-        run: |
+          # Create the main test script in the repository root
           cat > start_appium_and_test.sh << 'EOF'
           #!/bin/bash
           set -e
           
           echo "🚀 Starting Appium server..."
-          # Start Appium server in background and capture its log in repo root
-          nohup appium --base-path /wd/hub --log-level info > Android-App-for-Car-Parking-Project/appium.log 2>&1 &
+          # Start Appium server in background
+          nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
           APPIUM_PID=$!
           
           echo "⏳ Waiting for Appium server to be ready..."
           # Wait up to 30s for Appium to respond as "ready"
           READY=false
           for i in {1..10}; do
-            if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q '"ready"'; then
+            if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q '"ready"' 2>/dev/null; then
               echo "✅ Appium server is ready"
               READY=true
               break
@@ -183,21 +136,98 @@ jobs:
           
           if [ "$READY" = false ]; then
             echo "❌ Appium server failed to start — dumping logs"
-            cat Android-App-for-Car-Parking-Project/appium.log
+            cat appium.log
             kill $APPIUM_PID || true
             exit 7
           fi
           
           echo "🧪 Running E2E tests..."
-          # Run the E2E test script
+          # Change to Android project directory
           cd Android-App-for-Car-Parking-Project
+          
+          # Run the E2E test script
           ./e2e_test.sh
-          cd ..
           
           echo "🧹 Cleaning up Appium..."
           kill $APPIUM_PID || true
           EOF
           chmod +x start_appium_and_test.sh
+
+      - name: Create E2E test script
+        working-directory: Android-App-for-Car-Parking-Project
+        run: |
+          cat > e2e_test.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          echo "🔍 Checking emulator readiness..."
+          # Wait for emulator to be fully ready
+          adb wait-for-device
+          
+          # Wait for boot to complete
+          echo "⏳ Waiting for emulator to boot completely..."
+          timeout 300 bash -c 'until [[ $(adb shell getprop sys.boot_completed 2>/dev/null) == "1" ]]; do sleep 2; done' || {
+            echo "❌ Emulator failed to boot within 5 minutes"
+            exit 1
+          }
+          echo "✅ Emulator booted successfully."
+          
+          # Disable animations for faster testing
+          echo "🎬 Disabling animations..."
+          adb shell "settings put global window_animation_scale 0.0"
+          adb shell "settings put global transition_animation_scale 0.0"
+          adb shell "settings put global animator_duration_scale 0.0"
+          
+          # Clear logcat and start capturing
+          adb logcat -c
+          mkdir -p screenshots
+          
+          echo "📋 Starting logcat capture..."
+          adb logcat > logcat.txt &
+          LOGCAT_PID=$!
+          
+          echo "🎥 Starting screen recording..."
+          adb shell screenrecord --time-limit=180 /sdcard/e2e_recording.mp4 &
+          SCREENRECORD_PID=$!
+          
+          # Give some time for setup
+          sleep 5
+          
+          echo "📦 Installing APK..."
+          adb install -r app/build/outputs/apk/debug/app-debug.apk
+          
+          echo "🚀 Launching app..."
+          adb shell "am start -n ${PACKAGE_NAME}/.MainActivity -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"
+          
+          # Wait for app to load
+          sleep 10
+          
+          echo "🧪 Running Appium Python tests..."
+          cd tests
+          python -m pytest -v --html=../test-report.html --self-contained-html || {
+            echo "⚠️ Tests completed with issues"
+          }
+          cd ..
+          
+          echo "🛑 Stopping app..."
+          adb shell am force-stop "$PACKAGE_NAME" || true
+          
+          echo "🎥 Pulling screen recording..."
+          adb pull /sdcard/e2e_recording.mp4 screenshots/ || true
+          
+          echo "🗒️ Stopping logcat..."
+          kill $LOGCAT_PID || true
+          
+          # Wait for processes to clean up
+          sleep 2
+          
+          echo "📂 Test artifacts:"
+          ls -la screenshots/ || true
+          ls -la test-report.html || true
+          
+          echo "🎉 E2E test script completed."
+          EOF
+          chmod +x e2e_test.sh
 
       - name: Run E2E Tests on Android Emulator
         uses: reactivecircus/android-emulator-runner@v2
@@ -211,8 +241,7 @@ jobs:
           heap-size: 1024M
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -memory 4096 -partition-size 4096
           disable-animations: true
-          script: |
-            ./start_appium_and_test.sh
+          script: ./start_appium_and_test.sh
 
       - name: Upload Android logcat
         uses: actions/upload-artifact@v4

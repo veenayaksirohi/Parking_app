@@ -256,6 +256,15 @@ jobs:
             echo "Running start_appium_and_test.sh…"
             bash ./start_appium_and_test.sh
 
+      - name: Ensure E2E Artifact Exists
+        run: |
+          if [ ! -f Android-App-for-Car-Parking-Project/e2e-artifacts.zip ]; then
+            echo "Creating empty artifact zip to ensure upload step always succeeds."
+            cd Android-App-for-Car-Parking-Project
+            zip -r e2e-artifacts.zip .gitkeep || true
+            cd ..
+          fi
+
       - name: Upload E2E Artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -263,6 +272,7 @@ jobs:
           name: e2e-artifacts
           path: Android-App-for-Car-Parking-Project/e2e-artifacts.zip
           retention-days: 14
+          if-no-files-found: warn
 
       - name: Cleanup
         if: always()

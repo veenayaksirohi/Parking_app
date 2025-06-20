@@ -264,6 +264,14 @@ jobs:
             echo "Running start_appium_and_test.sh…"
             bash ./start_appium_and_test.sh
 
+      - name: List files in root before artifact upload
+        run: |
+          echo "📂 Listing files in root directory before artifact upload:"
+          ls -l
+          echo "📂 Listing files in artifacts directory before artifact upload:"
+          ls -l artifacts/ || true
+          ls -l artifacts/screenshots/ || true
+
       - name: Upload E2E Artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -272,6 +280,11 @@ jobs:
           path: e2e-artifacts.zip
           retention-days: 14
           if-no-files-found: warn
+
+      - name: Confirm artifact upload step completed
+        if: always()
+        run: |
+          echo "✅ Artifact upload step completed. Check previous logs for details."
 
       - name: Cleanup
         if: always()

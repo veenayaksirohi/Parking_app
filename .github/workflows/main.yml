@@ -226,6 +226,14 @@ jobs:
           ls -la test-report.html || true
           
           echo "🎉 E2E test script completed."
+
+          echo "📦 Zipping artifacts..."
+          # Ensure all expected artifact files/directories exist so zip has something to work with
+          touch app/build/reports/tests/testDebugUnitTest/index.html appium.log logcat.txt
+          # Always create the zip, even if some files are empty or tests fail.
+          zip -r e2e-artifacts.zip app/build/reports/tests/testDebugUnitTest/index.html appium.log logcat.txt screenshots/ e2e_recording.mp4 || echo "Zip command failed but we continue."
+          echo "Verifying zip file:"
+          ls -la e2e-artifacts.zip
           EOF
           chmod +x e2e_test.sh
 

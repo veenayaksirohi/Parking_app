@@ -261,18 +261,6 @@ jobs:
             echo "Running start_appium_and_test.sh…"
             bash ./start_appium_and_test.sh
 
-      - name: List files before upload
-        run: |
-          ls -l artifacts/
-          ls -l e2e-artifacts.zip
-
-      - name: Ensure E2E Artifact Exists
-        run: |
-          if [ ! -f e2e-artifacts.zip ]; then
-            echo "Creating empty artifact zip to ensure upload step always succeeds."
-            zip -r e2e-artifacts.zip .gitkeep || true
-          fi
-
       - name: Upload E2E Artifacts
         uses: actions/upload-artifact@v4
         if: always()

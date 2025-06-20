@@ -150,6 +150,10 @@ jobs:
           
           echo "🧹 Cleaning up Appium..."
           kill $APPIUM_PID || true
+          sleep 2  # Give time for appium.log to flush
+          sync  # Ensure all logs are written to disk
+          echo "Appium log preview:"
+          cat appium.log || true
           EOF
           chmod +x start_appium_and_test.sh
 

@@ -229,6 +229,7 @@ jobs:
 
           echo "📦 Zipping artifacts..."
           # Ensure all expected artifact files/directories exist so zip has something to work with
+          mkdir -p app/build/reports/tests/testDebugUnitTest
           touch app/build/reports/tests/testDebugUnitTest/index.html appium.log logcat.txt
           # Always create the zip, even if some files are empty or tests fail.
           zip -r e2e-artifacts.zip app/build/reports/tests/testDebugUnitTest/index.html appium.log logcat.txt screenshots/ e2e_recording.mp4 || echo "Zip command failed but we continue."

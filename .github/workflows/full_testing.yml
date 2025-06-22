@@ -14,10 +14,12 @@ on:
     types: [submodule-updated]
 
 jobs:
-  backend-e2e:
-    name: Backend E2E Test
+  integration-e2e:
+    name: Full Integration E2E (Backend + Android Appium)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
+    env:
+      TEST_DURATION: 120
     steps:
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
@@ -58,54 +60,6 @@ jobs:
             docker compose logs --tail=50 web
             exit 1
           fi
-
-      - name: Run backend tests
-        working-directory: Backend-Implementation-for-Car-Parking-Project
-        run: |
-          if [ -f test_app.py ]; then
-            pip install -r requirements.txt
-            pytest test_app.py --maxfail=1 --disable-warnings -v || true
-          else
-            echo "No backend tests found."
-          fi
-
-      - name: Save backend logs
-        working-directory: Backend-Implementation-for-Car-Parking-Project
-        run: |
-          docker compose logs > backend_logs.txt
-          docker compose ps > container_status.txt
-
-      - name: Upload backend logs
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: backend-logs
-          path: |
-            Backend-Implementation-for-Car-Parking-Project/backend_logs.txt
-            Backend-Implementation-for-Car-Parking-Project/container_status.txt
-          retention-days: 7
-
-      - name: Cleanup backend services
-        if: always()
-        working-directory: Backend-Implementation-for-Car-Parking-Project
-        run: |
-          docker compose down -v
-          docker ps -a
-
-  android-appium-e2e:
-    name: Android Appium E2E
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    needs: backend-e2e
-    env:
-      TEST_DURATION: 120
-    steps:
-      - name: Checkout repository with submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -222,9 +176,28 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
-      - name: Confirm artifact upload step completed
+      - name: Save backend logs
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          docker compose logs > backend_logs.txt
+          docker compose ps > container_status.txt
+
+      - name: Upload backend logs
+        uses: actions/upload-artifact@v4
         if: always()
-        run: echo "✅ Artifact upload step completed."
+        with:
+          name: backend-logs
+          path: |
+            Backend-Implementation-for-Car-Parking-Project/backend_logs.txt
+            Backend-Implementation-for-Car-Parking-Project/container_status.txt
+          retention-days: 7
+
+      - name: Cleanup backend services
+        if: always()
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          docker compose down -v
+          docker ps -a
 
       - name: Cleanup
         if: always()

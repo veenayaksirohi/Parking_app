@@ -272,6 +272,12 @@ jobs:
           ls -l artifacts/ || true
           ls -l artifacts/screenshots/ || true
 
+      - name: Move E2E Artifacts to root for upload
+        run: |
+          if [ -f Android-App-for-Car-Parking-Project/e2e-artifacts.zip ]; then
+            mv Android-App-for-Car-Parking-Project/e2e-artifacts.zip .
+          fi
+
       - name: Upload E2E Artifacts
         uses: actions/upload-artifact@v4
         if: always()

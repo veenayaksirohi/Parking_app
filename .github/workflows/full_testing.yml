@@ -172,7 +172,7 @@ jobs:
           ls -l artifacts/ || true
           ls -l artifacts/screenshots/ || true
 
-      - name: Debug: List and show logs before artifact upload
+      - name: "Debug: List and show logs before artifact upload"
         run: |
           ls -l artifacts/
           ls -l artifacts/screenshots/ || true

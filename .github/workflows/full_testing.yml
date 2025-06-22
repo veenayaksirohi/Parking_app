@@ -172,6 +172,19 @@ jobs:
           ls -l artifacts/ || true
           ls -l artifacts/screenshots/ || true
 
+      - name: Debug: List and show logs before artifact upload
+        run: |
+          ls -l artifacts/
+          ls -l artifacts/screenshots/ || true
+          for f in appium.log pytest.log logcat.txt; do
+            if [ -f "artifacts/$f" ]; then
+              echo "===== $f ====="
+              head -20 "artifacts/$f"
+            else
+              echo "$f not found in artifacts/"
+            fi
+          done
+
       - name: Upload E2E Artifacts
         uses: actions/upload-artifact@v4
         if: always()

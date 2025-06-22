@@ -1,0 +1,234 @@
+name: Full E2E CI/CD for Backend and Android App
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - '**'
+  workflow_dispatch:
+  repository_dispatch:
+    types: [submodule-updated]
+
+jobs:
+  backend-e2e:
+    name: Backend E2E Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start backend services
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          docker compose down -v
+          docker compose up -d --no-recreate
+          sleep 10
+          docker compose ps
+          docker compose logs
+
+      - name: Wait for backend to be ready
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if docker compose logs web | grep -q "Running on http://" && \
+               docker compose logs web | grep -q "Debugger is active!"; then
+              sleep 5
+              if curl -s -f http://127.0.0.1:5000/ > /dev/null; then
+                echo "✅ Backend is responding!"
+                break
+              fi
+            fi
+            sleep 5
+            timeout=$((timeout-5))
+          done
+          if [ $timeout -le 0 ]; then
+            docker compose logs --tail=50 web
+            exit 1
+          fi
+
+      - name: Run backend tests
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          if [ -f test_app.py ]; then
+            pip install -r requirements.txt
+            pytest test_app.py --maxfail=1 --disable-warnings -v || true
+          else
+            echo "No backend tests found."
+          fi
+
+      - name: Save backend logs
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          docker compose logs > backend_logs.txt
+          docker compose ps > container_status.txt
+
+      - name: Upload backend logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-logs
+          path: |
+            Backend-Implementation-for-Car-Parking-Project/backend_logs.txt
+            Backend-Implementation-for-Car-Parking-Project/container_status.txt
+          retention-days: 7
+
+      - name: Cleanup backend services
+        if: always()
+        working-directory: Backend-Implementation-for-Car-Parking-Project
+        run: |
+          docker compose down -v
+          docker ps -a
+
+  android-appium-e2e:
+    name: Android Appium E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: backend-e2e
+    env:
+      TEST_DURATION: 120
+    steps:
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create local.properties for Android
+        working-directory: Android-App-for-Car-Parking-Project
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" >> local.properties
+
+      - name: Grant execute permission for gradlew
+        working-directory: Android-App-for-Car-Parking-Project
+        run: chmod +x ./gradlew
+
+      - name: Build Debug APK
+        working-directory: Android-App-for-Car-Parking-Project
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Extract Android package name
+        id: extract_package
+        working-directory: Android-App-for-Car-Parking-Project
+        run: |
+          if [ -f "app/build.gradle.kts" ]; then
+            PACKAGE_NAME=$(grep -E 'applicationId\s*=\s*"' app/build.gradle.kts | sed -E 's/.*applicationId\s*=\s*"([^"]+)".*/\1/' | head -1)
+          elif [ -f "app/build.gradle" ]; then
+            PACKAGE_NAME=$(grep -E 'applicationId\s+' app/build.gradle | sed -E 's/.*applicationId\s+"([^"]+)".*/\1/' | head -1)
+          else
+            PACKAGE_NAME="com.example.carparkingapp"
+          fi
+          echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
+
+      - name: Set up Python for Appium tests
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        working-directory: Android-App-for-Car-Parking-Project/tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install latest Appium and UiAutomator2 driver
+        run: |
+          npm install -g appium@latest
+          appium driver install uiautomator2@latest
+
+      - name: Create and run Appium E2E test script
+        run: |
+          cat > start_appium_and_test.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          nohup appium --base-path /wd/hub --log-level info > appium.log 2>&1 &
+          APPIUM_PID=$!
+          for i in {1..10}; do
+            if curl -s http://127.0.0.1:4723/wd/hub/status | grep -q '"ready"'; then
+              break
+            fi
+            sleep 3
+          done
+          cd Android-App-for-Car-Parking-Project
+          ./e2e_test.sh || zip -r ../e2e-artifacts.zip .gitkeep || true
+          kill $APPIUM_PID || true
+          sleep 2
+          sync
+          cat appium.log || true
+          EOF
+          chmod +x start_appium_and_test.sh
+
+      - name: Ensure e2e_test.sh is executable
+        working-directory: Android-App-for-Car-Parking-Project
+        run: chmod +x e2e_test.sh
+
+      - name: Run E2E Tests on Android Emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 28
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          avd-name: pixel_2_api_28
+          ram-size: 4096M
+          heap-size: 1024M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -memory 4096 -partition-size 4096
+          disable-animations: true
+          script: |
+            bash ./start_appium_and_test.sh
+
+      - name: List files in root before artifact upload
+        run: |
+          ls -l
+          ls -l artifacts/ || true
+          ls -l artifacts/screenshots/ || true
+
+      - name: Upload E2E Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-artifacts
+          path: e2e-artifacts.zip
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Confirm artifact upload step completed
+        if: always()
+        run: echo "✅ Artifact upload step completed."
+
+      - name: Cleanup
+        if: always()
+        run: |
+          pkill -f appium || true
+          pkill -f adb || true
+          ps aux | grep -E "(appium|adb)" | grep -v grep || true

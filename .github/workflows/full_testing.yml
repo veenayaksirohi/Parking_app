@@ -134,18 +134,12 @@ jobs:
             sleep 3
           done
           cd Android-App-for-Car-Parking-Project
-          # Run e2e_test.sh and capture all output to ../pytest.log
-          ./e2e_test.sh 2>&1 | tee ../pytest.log || zip -r ../e2e-artifacts.zip .gitkeep || true
+          # Run e2e_test.sh, which now handles its own logging and artifacts
+          ./e2e_test.sh
           cd ..
-          # Kill Appium and wait for it to fully stop before moving logs
+          # Kill Appium
           kill $APPIUM_PID || true
           wait $APPIUM_PID 2>/dev/null || true
-          sleep 2
-          sync
-          # Move logs to the artifact location after Appium is stopped
-          mv appium.log Android-App-for-Car-Parking-Project/appium.log || true
-          mv pytest.log Android-App-for-Car-Parking-Project/pytest.log || true
-          cat Android-App-for-Car-Parking-Project/appium.log || true
           EOF
           chmod +x start_appium_and_test.sh
 

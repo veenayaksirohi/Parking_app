@@ -218,6 +218,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          pkill -f appium || true
-          pkill -f adb || true
+          (pkill -f appium || true)
+          (pkill -f adb || true)
           ps aux | grep -E "(appium|adb)" | grep -v grep || true
+          true
